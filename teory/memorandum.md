@@ -505,24 +505,25 @@ Il ponte: majority voting entity→GT_column, spec→GT_row, poi verifica per og
 - **Row accuracy**: il NUMERIC è nella GT row della sua spec?
 - **Cell accuracy**: entrambi corretti (la metrica più dura)
 
-### Risultati (5000 tabelle per dataset, seed=42)
+### Risultati (FULL SCALE — 103.123 tabelle totali)
 
 ```
-                    PubTables-1M    FinTabNet      Gap
-Column accuracy:    84.0%           83.2%          0.8pp
-Row accuracy:       81.6%           92.9%          11.3pp
-Cell accuracy:      72.5%           76.7%          4.2pp
-Coverage:           100.0%          100.0%         —
-Tables with bonds:  94.2%           95.9%          —
-Speed:              371 tab/s       252 tab/s      —
+                    PubTables-1M     FinTabNet       Gap
+                    (93.834 tab)     (9.289 tab)
+Column accuracy:    83.9%            83.2%           0.7pp
+Row accuracy:       81.6%            93.0%           11.4pp
+Cell accuracy:      72.3%            76.8%           4.5pp
+Coverage:           99.9%            100.0%          —
+Tables with bonds:  94.0%            96.0%           —
+Speed:              560 tab/s        278 tab/s       —
 ```
 
 ### Interpretazione
 
-1. **Cross-domain stabile**: 0.8pp gap su colonne tra paper scientifici e documenti finanziari.
+1. **Cross-domain stabile**: 0.7pp gap su colonne tra paper scientifici e documenti finanziari.
    Il campo è genuinamente universale — zero vocabolario, zero training, zero GPU.
 
-2. **FinTabNet superiore su righe**: 92.9% row accuracy.
+2. **FinTabNet superiore su righe**: 93.0% row accuracy.
    Le tabelle finanziarie hanno righe ordinate, il campo le cattura benissimo.
 
 3. **Cell accuracy 72-77%**: la metrica più dura.
@@ -532,7 +533,7 @@ Speed:              371 tab/s       252 tab/s      —
 4. **Coverage 100%**: il campo mappa TUTTO. Zero NUMERIC abbandonati.
    Questo è un vantaggio strutturale: il campo NON scarta dati.
 
-5. **Velocità**: ~300 tabelle/secondo. Non è un prototipo accademico.
+5. **Velocità**: 420-560 tabelle/secondo. Non è un prototipo accademico.
 
 ### Cosa significa
 
