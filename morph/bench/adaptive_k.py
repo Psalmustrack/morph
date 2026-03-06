@@ -32,7 +32,7 @@ import time
 from multiprocessing import Pool
 from statistics import median
 
-from morph.core.sense import _group_into_rows
+from morph.core.sense import _group_into_rows, _natural_threshold
 from morph.bench.pubtables import (
     find_pairs as find_pairs_pubtables,
     json_to_particles,
@@ -52,48 +52,10 @@ from morph.bench.grits import (
 
 
 # ---------------------------------------------------------------------------
-# Natural threshold via max relative jump
-# ---------------------------------------------------------------------------
-
-def find_natural_threshold(gaps: list[float]) -> float:
-    """Find the natural threshold from the maximum relative jump.
-
-    The maximum *absolute* jump favours large values (30→80 beats
-    3→30).  The maximum *relative* jump (ratio) finds where the
-    distribution "breaks": a jump from 3→30 (10x) counts more than
-    30→80 (2.7x).
-
-    If no relative jump exceeds 1.5x, there is no natural break,
-    and the threshold is set above all gaps (= no boundaries).
-
-    Args:
-        gaps: List of positive gap values.
-
-    Returns:
-        Threshold value (midpoint of the largest relative jump).
-    """
-    if len(gaps) < 3:
-        return median(gaps) if gaps else 10
-    sorted_gaps = sorted(gaps)
-
-    best_ratio = 1.0
-    best_idx = 0
-    for i in range(len(sorted_gaps) - 1):
-        if sorted_gaps[i] > 0:
-            ratio = sorted_gaps[i + 1] / sorted_gaps[i]
-            if ratio > best_ratio:
-                best_ratio = ratio
-                best_idx = i
-
-    if best_ratio < 1.5:
-        return sorted_gaps[-1] + 1  # above all gaps → no boundary
-
-    return (sorted_gaps[best_idx] + sorted_gaps[best_idx + 1]) / 2
-
-
-# ---------------------------------------------------------------------------
 # Column splits with max-jump (per-row threshold + voting)
 # ---------------------------------------------------------------------------
+
+# _natural_threshold → importata da morph.core.sense come _natural_threshold
 
 def find_col_splits_maxjump(
     particles: list[dict],
@@ -132,7 +94,7 @@ def find_col_splits_maxjump(
     if not all_gaps_global:
         return [], 0
 
-    global_threshold = find_natural_threshold(all_gaps_global)
+    global_threshold = _natural_threshold(all_gaps_global)
 
     # Step 2: per-row local threshold or fallback
     all_boundaries: list[float] = []
@@ -144,7 +106,7 @@ def find_col_splits_maxjump(
         gaps_only = [g for g, _ in gaps_info]
 
         if len(gaps_only) >= 3:
-            threshold = find_natural_threshold(gaps_only)
+            threshold = _natural_threshold(gaps_only)
             if threshold > max(gaps_only):
                 threshold = global_threshold
         else:

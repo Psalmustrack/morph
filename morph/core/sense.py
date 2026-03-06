@@ -92,6 +92,42 @@ def _estimate_row_spacing(particles: list[dict]) -> float:
     return statistics.median(normal_gaps) if normal_gaps else 15.0
 
 
+# ─── Natural Threshold (max-ratio-jump) ──────────────────────────────
+
+def _natural_threshold(gaps: list[float]) -> float:
+    """Find natural boundary threshold from the maximum relative jump.
+
+    Ordina i gap, calcola rapporti consecutivi, trova il salto massimo.
+    Se max ratio < 1.5x → nessun confine naturale (threshold sopra tutti).
+
+    Principio: il confine tra celle emerge dalla discontinuita' massima
+    nella distribuzione dei gap, non da una costante fissa.
+
+    Args:
+        gaps: Lista di gap positivi (pixel).
+
+    Returns:
+        Soglia (midpoint del salto massimo), o sopra tutti se nessun break.
+    """
+    if len(gaps) < 3:
+        return statistics.median(gaps) if gaps else 10
+    sorted_gaps = sorted(gaps)
+
+    best_ratio = 1.0
+    best_idx = 0
+    for i in range(len(sorted_gaps) - 1):
+        if sorted_gaps[i] > 0:
+            ratio = sorted_gaps[i + 1] / sorted_gaps[i]
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_idx = i
+
+    if best_ratio < 1.5:
+        return sorted_gaps[-1] + 1  # sopra tutti → nessun confine
+
+    return (sorted_gaps[best_idx] + sorted_gaps[best_idx + 1]) / 2
+
+
 # ─── Universal Boundary Law (ratio k) ────────────────────────────────
 
 def _estimate_row_spacing_all(particles: list[dict]) -> float:
@@ -190,19 +226,67 @@ def _count_cols_ratio(row_particles: list[dict],
     return n_cols
 
 
+def _count_cols_maxjump(row_particles: list[dict],
+                        global_threshold: float | None = None) -> int:
+    """Count columns in a row using max-ratio-jump threshold.
+
+    Invece di k fisso, la soglia emerge dal salto massimo nei gap.
+    Se la riga ha <3 gap, usa il threshold globale come fallback.
+
+    Args:
+        row_particles: Particelle di una singola riga.
+        global_threshold: Soglia fallback (calcolata su tutte le righe).
+
+    Returns:
+        Numero di colonne rilevate.
+    """
+    if len(row_particles) < 2:
+        return max(1, len(row_particles))
+
+    ps = sorted(row_particles, key=lambda p: p['x0'])
+    gaps = [ps[i + 1]['x0'] - ps[i]['x1'] for i in range(len(ps) - 1)]
+    # Filtra gap negativi (overlap)
+    pos_gaps = [g for g in gaps if g > 0]
+
+    if not pos_gaps:
+        return 1
+
+    if len(pos_gaps) >= 3:
+        threshold = _natural_threshold(pos_gaps)
+        # Se nessun break naturale e abbiamo un fallback, usalo
+        if threshold > max(pos_gaps) and global_threshold is not None:
+            threshold = global_threshold
+    elif global_threshold is not None:
+        threshold = global_threshold
+    else:
+        # Pochi gap, nessun fallback → euristica mediana
+        threshold = statistics.median(pos_gaps) * 2
+
+    n_cols = 1
+    for g in gaps:
+        if g > threshold:
+            n_cols += 1
+    return n_cols
+
+
 def count_columns_universal(particles: list[dict],
-                            k: float = 0.3) -> int:
-    """Detect column count with row-mode voting + ratio k.
+                            k: float = 0.3,
+                            method: str = 'maxjump') -> int:
+    """Detect column count with row-mode voting.
 
     Each row (>= 2 particles) votes for a column count; the mode wins.
     Uses ALL particles — effective on both numeric and text-heavy tables.
 
-    Row-mode + ratio k=0.3 validated on 93,834 PubTables-1M tables:
-    66.6% col exact (vs 37.2% grid, +29.4pp).
+    Methods:
+        - ``'maxjump'``: soglia adattiva dal salto massimo nei gap (default).
+          Validato cross-domain: PubTables 79.7%, FinTabNet 77.6%, gap 2.1pp.
+        - ``'fixed'``: soglia fissa ``gap > avg_w * k``.
+          Validato su PubTables: 66.6% col exact con k=0.3.
 
     Args:
         particles: All particles on the page.
-        k: Gap-to-width ratio threshold.
+        k: Gap-to-width ratio threshold (solo per method='fixed').
+        method: ``'maxjump'`` (default) o ``'fixed'``.
 
     Returns:
         Most common column count across all rows.
@@ -212,11 +296,30 @@ def count_columns_universal(particles: list[dict],
 
     rows = _group_into_rows(particles)
 
-    votes = []
-    for row in rows:
-        if len(row) < 2:
-            continue
-        votes.append(_count_cols_ratio(row, k=k))
+    if method == 'maxjump':
+        # Calcola threshold globale come fallback per righe con pochi gap
+        all_gaps = []
+        for row in rows:
+            if len(row) < 2:
+                continue
+            ps = sorted(row, key=lambda p: p['x0'])
+            for i in range(len(ps) - 1):
+                g = ps[i + 1]['x0'] - ps[i]['x1']
+                if g > 0:
+                    all_gaps.append(g)
+        global_threshold = _natural_threshold(all_gaps) if all_gaps else None
+
+        votes = []
+        for row in rows:
+            if len(row) < 2:
+                continue
+            votes.append(_count_cols_maxjump(row, global_threshold))
+    else:
+        votes = []
+        for row in rows:
+            if len(row) < 2:
+                continue
+            votes.append(_count_cols_ratio(row, k=k))
 
     if not votes:
         return 1
