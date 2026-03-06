@@ -25,7 +25,7 @@ import os
 import random
 import time
 import xml.etree.ElementTree as ET
-from collections import Counter
+from collections import Counter, defaultdict
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -201,6 +201,108 @@ def count_rows_from_particles(
     return len(rows)
 
 
+def _gt_cell(x: float, y: float, gt: dict) -> tuple[int, int]:
+    """Trova la cella GT (col_idx, row_idx) per un punto (x, y).
+
+    Returns (-1, -1) se il punto cade fuori da tutte le regioni GT.
+    """
+    col_idx = -1
+    for i, col in enumerate(gt['columns']):
+        if col['xmin'] <= x <= col['xmax']:
+            col_idx = i
+            break
+
+    row_idx = -1
+    for i, row in enumerate(gt['rows']):
+        if row['ymin'] <= y <= row['ymax']:
+            row_idx = i
+            break
+
+    return col_idx, row_idx
+
+
+def evaluate_field_bonds(field_data: dict, gt: dict) -> dict:
+    """Valuta l'accuratezza dei bond del campo contro il GT a griglia.
+
+    Per ogni NUMERIC mappato dal campo:
+    1. Trova la cella GT (col_idx, row_idx) dalle coordinate
+    2. Majority voting: entity → GT column, spec → GT row
+    3. Un bond è corretto se entity e spec mappano alla cella GT giusta
+
+    Args:
+        field_data: Output di extract_page().
+        gt: Output di parse_gt().
+
+    Returns:
+        Dict con metriche bond: col_acc, row_acc, cell_acc, coverage.
+    """
+    data = field_data['data']
+
+    # Raccogli tutti i NUMERIC mappati con le loro assegnazioni
+    assignments = []  # (entity, spec, gt_col, gt_row)
+    for entity, specs in data.items():
+        for spec, info in specs.items():
+            gc, gr = _gt_cell(info['x'], info['y'], gt)
+            assignments.append((entity, spec, gc, gr))
+
+    if not assignments:
+        return {
+            'n_bonds': 0,
+            'bond_col_acc': 0.0,
+            'bond_row_acc': 0.0,
+            'bond_cell_acc': 0.0,
+            'coverage': 0.0,
+        }
+
+    n = len(assignments)
+
+    # Entity → GT column (majority voting)
+    entity_cols: dict[str, list[int]] = defaultdict(list)
+    for entity, _spec, gc, _gr in assignments:
+        if gc >= 0:
+            entity_cols[entity].append(gc)
+
+    entity_to_col = {}
+    for entity, cols in entity_cols.items():
+        entity_to_col[entity] = Counter(cols).most_common(1)[0][0]
+
+    # Spec → GT row (majority voting)
+    spec_rows: dict[str, list[int]] = defaultdict(list)
+    for _entity, spec, _gc, gr in assignments:
+        if gr >= 0:
+            spec_rows[spec].append(gr)
+
+    spec_to_row = {}
+    for spec, rows in spec_rows.items():
+        spec_to_row[spec] = Counter(rows).most_common(1)[0][0]
+
+    # Conta bond corretti
+    col_ok = row_ok = cell_ok = 0
+    for entity, spec, gc, gr in assignments:
+        c = gc >= 0 and entity_to_col.get(entity) == gc
+        r = gr >= 0 and spec_to_row.get(spec) == gr
+        if c:
+            col_ok += 1
+        if r:
+            row_ok += 1
+        if c and r:
+            cell_ok += 1
+
+    # Coverage: mapped / (mapped + unmapped)
+    mapped = field_data['stats']['mapped']
+    unmapped = field_data['stats']['unmapped']
+    total = mapped + unmapped
+    coverage = mapped / total if total > 0 else 0.0
+
+    return {
+        'n_bonds': n,
+        'bond_col_acc': col_ok / n,
+        'bond_row_acc': row_ok / n,
+        'bond_cell_acc': cell_ok / n,
+        'coverage': coverage,
+    }
+
+
 def evaluate_table(
     json_path: str,
     xml_path: str,
@@ -235,6 +337,9 @@ def evaluate_table(
 
     field_result = extract_page(sensed)
 
+    # Metriche bond del campo
+    bonds = evaluate_field_bonds(field_result, gt)
+
     gt_cols = len(gt['columns'])
     gt_rows = len(gt['rows'])
     det_cols = count_columns_universal(sensed)
@@ -267,13 +372,20 @@ def evaluate_table(
         'n_particles': len(sensed),
         'types': dict(type_dist),
         'has_spanning': len(gt['spanning_cells']) > 0,
+        # Bond-level metrics (campo)
+        'bond_n': bonds['n_bonds'],
+        'bond_col_acc': bonds['bond_col_acc'],
+        'bond_row_acc': bonds['bond_row_acc'],
+        'bond_cell_acc': bonds['bond_cell_acc'],
+        'bond_coverage': bonds['coverage'],
     }
 
     if verbose:
         name = Path(json_path).stem.replace('_words', '')
         print(f"  {name}: cols={gt_cols}→{det_cols} "
               f"rows={gt_rows}→{det_rows} "
-              f"mapped={det_mapped} entities={det_entities}")
+              f"mapped={det_mapped} bonds={bonds['n_bonds']} "
+              f"cell_acc={bonds['bond_cell_acc']:.1%}")
 
     return result
 
@@ -282,27 +394,51 @@ def evaluate_table(
 # Dataset discovery
 # ---------------------------------------------------------------------------
 
-def find_pairs(limit: int | None = None) -> list[tuple]:
-    """Discover (JSON, XML) pairs in the PubTables-1M dataset.
+def find_pairs(
+    limit: int | None = None,
+    dataset: str = 'pubtables',
+) -> list[tuple]:
+    """Discover (JSON, XML) pairs in PubTables-1M or FinTabNet.
 
     Args:
         limit: Maximum number of pairs to return (random sample).
+        dataset: ``'pubtables'`` o ``'fintabnet'``.
 
     Returns:
         List of ``(json_path, xml_path)`` tuples.
     """
-    xmls = {}
-    for f in os.scandir(DATASET):
-        if f.name.endswith('.xml'):
-            key = f.name.replace('.xml', '')
-            xmls[key] = f.path
+    if dataset == 'fintabnet':
+        root = Path(os.environ.get(
+            'FINTABNET_ROOT',
+            '/mnt/dati/home/Progetti/dataset/fintabnet/FinTabNet.c-Structure',
+        ))
+        test_dir = root / 'test'
+        words_dir = root / 'words'
 
-    pairs = []
-    for f in os.scandir(DATASET):
-        if f.name.endswith('_words.json'):
-            key = f.name.replace('_words.json', '')
-            if key in xmls:
-                pairs.append((f.path, xmls[key]))
+        xmls = {}
+        for f in os.scandir(test_dir):
+            if f.name.endswith('.xml'):
+                xmls[f.name.replace('.xml', '')] = f.path
+
+        pairs = []
+        for f in os.scandir(words_dir):
+            if f.name.endswith('_words.json'):
+                key = f.name.replace('_words.json', '')
+                if key in xmls:
+                    pairs.append((f.path, xmls[key]))
+    else:
+        xmls = {}
+        for f in os.scandir(DATASET):
+            if f.name.endswith('.xml'):
+                key = f.name.replace('.xml', '')
+                xmls[key] = f.path
+
+        pairs = []
+        for f in os.scandir(DATASET):
+            if f.name.endswith('_words.json'):
+                key = f.name.replace('_words.json', '')
+                if key in xmls:
+                    pairs.append((f.path, xmls[key]))
 
     random.shuffle(pairs)
     if limit:
@@ -333,6 +469,9 @@ def main():
     )
     parser.add_argument('--n', type=int, default=100,
                         help='Number of tables to test')
+    parser.add_argument('--dataset', choices=['pubtables', 'fintabnet'],
+                        default='pubtables',
+                        help='Dataset: pubtables o fintabnet')
     parser.add_argument('--domain', action='store_true',
                         help='Activate HVAC domain vocabulary')
     parser.add_argument('--verbose', '-v', action='store_true')
@@ -342,11 +481,12 @@ def main():
     args = parser.parse_args()
 
     random.seed(args.seed)
-    pairs = find_pairs(limit=args.n)
+    pairs = find_pairs(limit=args.n, dataset=args.dataset)
     mode = 'engine+HVAC' if args.domain else 'engine-only'
+    ds_name = 'PubTables-1M' if args.dataset == 'pubtables' else 'FinTabNet'
 
     print(f"\n{'=' * 60}")
-    print(f"  Morph Benchmark — PubTables-1M")
+    print(f"  Morph Benchmark — {ds_name} (campo + struttura)")
     print(f"  Mode: {mode}  |  N={len(pairs)}  |  "
           f"seed={args.seed}  |  cores={args.cores}")
     print(f"{'=' * 60}\n")
@@ -419,6 +559,29 @@ def main():
     print(f"    Mean mapped={avg_mapped:.1f}  unmapped={avg_unmapped:.1f}")
     print(f"    Mean entities={avg_entities:.1f}")
     print()
+
+    # Bond-level metrics (campo)
+    has_bonds = [r for r in results if r['bond_n'] > 0]
+    nb = len(has_bonds)
+    if nb > 0:
+        avg_col = sum(r['bond_col_acc'] for r in has_bonds) / nb
+        avg_row = sum(r['bond_row_acc'] for r in has_bonds) / nb
+        avg_cell = sum(r['bond_cell_acc'] for r in has_bonds) / nb
+        avg_cov = sum(r['bond_coverage'] for r in has_bonds) / nb
+        avg_bonds = sum(r['bond_n'] for r in has_bonds) / nb
+        no_bonds = n - nb
+        print(f"  FIELD BONDS (il campo):")
+        print(f"    Tables with bonds: {nb}/{n} "
+              f"({100 * nb / n:.1f}%), empty: {no_bonds}")
+        print(f"    Mean bonds/table:  {avg_bonds:.1f}")
+        print(f"    Column accuracy:   {100 * avg_col:.1f}%")
+        print(f"    Row accuracy:      {100 * avg_row:.1f}%")
+        print(f"    Cell accuracy:     {100 * avg_cell:.1f}%")
+        print(f"    Coverage:          {100 * avg_cov:.1f}%")
+        print()
+    else:
+        print(f"  FIELD BONDS: nessun bond prodotto")
+        print()
 
     type_totals = Counter()
     for r in results:
