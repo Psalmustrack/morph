@@ -32,7 +32,7 @@ import time
 from multiprocessing import Pool
 from statistics import median
 
-from morph.core.sense import _group_into_rows, _natural_threshold
+from morph.bench.grid import _group_into_rows, _natural_threshold
 from morph.bench.pubtables import (
     find_pairs as find_pairs_pubtables,
     json_to_particles,

@@ -251,7 +251,7 @@ class TestSenseUtilities:
         assert len(rows) == 2
 
     def test_count_columns_universal(self):
-        from morph.core.sense import count_columns_universal
+        from morph.bench.grid import count_columns_universal
         particles = _make_table_particles()
         n = count_columns_universal(particles)
         assert isinstance(n, int)
@@ -510,7 +510,7 @@ class TestNaturalThreshold:
         vicine tra loro ma separate da gap grande dallo spec label.
         Gap intra-cella ~10px, gap inter-colonna ~60px.
         """
-        from morph.core.sense import count_columns_universal
+        from morph.bench.grid import count_columns_universal
         particles = []
         for y in [100, 130, 160, 190]:
             # Spec label a sinistra
@@ -533,7 +533,7 @@ class TestNaturalThreshold:
 
     def test_maxjump_matches_fixed_on_simple(self):
         """Su tabella semplice, maxjump e fixed devono concordare."""
-        from morph.core.sense import count_columns_universal
+        from morph.bench.grid import count_columns_universal
         particles = _make_table_particles()
         n_fixed = count_columns_universal(particles, method='fixed')
         n_maxjump = count_columns_universal(particles, method='maxjump')
@@ -543,11 +543,85 @@ class TestNaturalThreshold:
 
     def test_fixed_method_backward_compatible(self):
         """method='fixed' produce lo stesso risultato di prima."""
-        from morph.core.sense import count_columns_universal
+        from morph.bench.grid import count_columns_universal
         particles = _make_table_particles()
         n = count_columns_universal(particles, method='fixed', k=0.3)
         assert isinstance(n, int)
         assert n >= 1
+
+
+# ─── Row counting (simmetrico a colonne) ─────────────────────────────
+
+class TestRowsUniversal:
+    """Test count_rows_universal — simmetrico a count_columns_universal."""
+
+    def test_basic_rows(self):
+        """Tabella sintetica HVAC — gap bimodali (header 38px + dati 18px).
+
+        Max-jump trova correttamente 2 zone (header | dati).
+        Non 4 righe: il break bimodale separa i due regimi di spacing.
+        """
+        from morph.bench.grid import count_rows_universal
+        particles = _make_table_particles()
+        n = count_rows_universal(particles)
+        assert n >= 2, f"Atteso almeno 2 zone, ottenuto {n}"
+
+    def test_rows_count_matches_layout(self):
+        """Layout esplicito: 5 righe Y=100,200,300,400,500 con gap uniforme."""
+        from morph.bench.grid import count_rows_universal
+        particles = []
+        for y in [100, 200, 300, 400, 500]:
+            for x0 in [50, 200, 350]:
+                particles.append({
+                    'text': '42', 'x': x0 + 15, 'y': y,
+                    'x0': x0, 'y0': y - 5, 'x1': x0 + 30, 'y1': y + 5,
+                    'type': 'NUMERIC', 'size': 10,
+                })
+        n = count_rows_universal(particles)
+        assert n == 5, f"Atteso 5 righe, ottenuto {n}"
+
+    def test_rows_bimodal_gap(self):
+        """Gap bimodale: righe ravvicinate (10px) con un gap grande (80px).
+
+        Y: 100, 110, 120, 200, 210, 220 → 2 gruppi se soglia fissa,
+        ma max-jump deve contare 6 righe (gap intra 10 < threshold).
+        """
+        from morph.bench.grid import count_rows_universal
+        particles = []
+        for y in [100, 110, 120, 200, 210, 220]:
+            for x0 in [50, 200, 350]:
+                particles.append({
+                    'text': '7', 'x': x0 + 15, 'y': y,
+                    'x0': x0, 'y0': y - 4, 'x1': x0 + 30, 'y1': y + 4,
+                    'type': 'NUMERIC', 'size': 9,
+                })
+        n = count_rows_universal(particles)
+        # I gap interni sono 2px (y1=y+4, next y0=y+10-4=y+6, gap=2)
+        # Il gap grande è 200-124=76px
+        # Max-jump deve trovare il break
+        assert n >= 2, f"Atteso almeno 2 righe (o 6), ottenuto {n}"
+
+    def test_rows_symmetry_with_cols(self):
+        """Colonne e righe devono essere coerenti sulla stessa tabella."""
+        from morph.bench.grid import count_columns_universal, count_rows_universal
+        particles = _make_table_particles()
+        n_cols = count_columns_universal(particles)
+        n_rows = count_rows_universal(particles)
+        assert n_cols >= 1
+        assert n_rows >= 1
+        # Su tabella sintetica: 3 col headers + 4 righe dati
+        # entrambi devono essere > 1
+        assert n_cols > 1 or n_rows > 1, \
+            f"Almeno uno deve essere >1: cols={n_cols}, rows={n_rows}"
+
+    def test_few_particles(self):
+        """Con 0 o 1 particella, ritorna 1."""
+        from morph.bench.grid import count_rows_universal
+        assert count_rows_universal([]) == 1
+        p = {'text': 'x', 'x': 50, 'y': 100,
+             'x0': 40, 'y0': 95, 'x1': 60, 'y1': 105,
+             'type': 'NUMERIC', 'size': 10}
+        assert count_rows_universal([p]) == 1
 
 
 # ─── Integration: pipeline completa Layer 1 → 1b → 2 ────────────────

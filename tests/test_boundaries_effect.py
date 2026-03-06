@@ -21,10 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from morph.io.reader import open_pdf
 from morph.core.typify import extract_particles
-from morph.core.sense import (
-    sense_page, count_columns_universal,
-    _group_into_rows, _natural_threshold,
-)
+from morph.core.sense import sense_page, _group_into_rows, _natural_threshold
 from morph.core.field import (
     extract_page, merge_multiline_specs, calibrate_sigma,
     _parse_z_norm, _assign_z_to_specs, calibrate_lambda_z,

@@ -31,7 +31,6 @@ Author: Eugeniu Tacu, 2026
 
 import bisect
 import statistics
-from collections import Counter
 
 
 # ─── Utilities ────────────────────────────────────────────────────────
@@ -92,22 +91,24 @@ def _estimate_row_spacing(particles: list[dict]) -> float:
     return statistics.median(normal_gaps) if normal_gaps else 15.0
 
 
+
 # ─── Natural Threshold (max-ratio-jump) ──────────────────────────────
 
 def _natural_threshold(gaps: list[float]) -> float:
     """Find natural boundary threshold from the maximum relative jump.
 
-    Ordina i gap, calcola rapporti consecutivi, trova il salto massimo.
-    Se max ratio < 1.5x → nessun confine naturale (threshold sopra tutti).
+    The perceptual principle: boundaries emerge from the maximum
+    discontinuity in the gap distribution. Where the spacing "jumps"
+    the most, there is a structural boundary.
 
-    Principio: il confine tra celle emerge dalla discontinuita' massima
-    nella distribuzione dei gap, non da una costante fissa.
+    Used by sensing to calibrate where groups of particles begin and
+    end — enabling correct promotion of headers, labels, sections.
 
     Args:
-        gaps: Lista di gap positivi (pixel).
+        gaps: List of positive gaps (pixels).
 
     Returns:
-        Soglia (midpoint del salto massimo), o sopra tutti se nessun break.
+        Threshold (midpoint of the max jump), or above all gaps if no break.
     """
     if len(gaps) < 3:
         return statistics.median(gaps) if gaps else 10
@@ -123,12 +124,10 @@ def _natural_threshold(gaps: list[float]) -> float:
                 best_idx = i
 
     if best_ratio < 1.5:
-        return sorted_gaps[-1] + 1  # sopra tutti → nessun confine
+        return sorted_gaps[-1] + 1  # above all → no boundary
 
     return (sorted_gaps[best_idx] + sorted_gaps[best_idx + 1]) / 2
 
-
-# ─── Universal Boundary Law (ratio k) ────────────────────────────────
 
 def _estimate_row_spacing_all(particles: list[dict]) -> float:
     """Estimate row spacing from ALL particles (not just NUMERIC).
@@ -154,8 +153,12 @@ def _group_into_rows(particles: list[dict],
                      y_tolerance: float | None = None) -> list[list[dict]]:
     """Group particles into rows by Y-axis proximity.
 
-    Tolerance is adaptive: computed from row spacing if not specified.
-    Each row is a list of particles with similar Y coordinates.
+    Perceptual grouping: particles that share the same Y-band belong
+    to the same row. Tolerance is adaptive — computed from local
+    row spacing to handle both dense and sparse layouts.
+
+    Used by sensing (implicitly via detect_columns) and by the
+    benchmark layer (explicitly for row-mode voting).
 
     Args:
         particles: Particles to group.
@@ -185,146 +188,6 @@ def _group_into_rows(particles: list[dict],
 
     return rows
 
-
-def _count_cols_ratio(row_particles: list[dict],
-                      k: float = 0.3) -> int:
-    """Count columns in a row using the universal boundary law.
-
-    The boundary criterion: ``gap > avg_particle_width * k``
-
-    The particle carries its own scale: narrow NUMERIC (~25px),
-    wide TEXT (~60px). The gap/width ratio is the invariant.
-
-    k=0.3 validated on 93,834 PubTables-1M tables: 66.6% col exact.
-
-    Args:
-        row_particles: Particles in a single row.
-        k: Gap-to-width ratio threshold (universal boundary law).
-
-    Returns:
-        Number of detected columns.
-    """
-    if len(row_particles) < 2:
-        return max(1, len(row_particles))
-
-    ps = sorted(row_particles, key=lambda p: p['x0'])
-    widths = [p['x1'] - p['x0'] for p in ps]
-    gaps = [ps[i + 1]['x0'] - ps[i]['x1'] for i in range(len(ps) - 1)]
-
-    if not gaps:
-        return 1
-
-    avg_w = sum(widths) / len(widths)
-    if avg_w <= 0:
-        avg_w = 10
-
-    threshold = avg_w * k
-    n_cols = 1
-    for g in gaps:
-        if g > threshold:
-            n_cols += 1
-    return n_cols
-
-
-def _count_cols_maxjump(row_particles: list[dict],
-                        global_threshold: float | None = None) -> int:
-    """Count columns in a row using max-ratio-jump threshold.
-
-    Invece di k fisso, la soglia emerge dal salto massimo nei gap.
-    Se la riga ha <3 gap, usa il threshold globale come fallback.
-
-    Args:
-        row_particles: Particelle di una singola riga.
-        global_threshold: Soglia fallback (calcolata su tutte le righe).
-
-    Returns:
-        Numero di colonne rilevate.
-    """
-    if len(row_particles) < 2:
-        return max(1, len(row_particles))
-
-    ps = sorted(row_particles, key=lambda p: p['x0'])
-    gaps = [ps[i + 1]['x0'] - ps[i]['x1'] for i in range(len(ps) - 1)]
-    # Filtra gap negativi (overlap)
-    pos_gaps = [g for g in gaps if g > 0]
-
-    if not pos_gaps:
-        return 1
-
-    if len(pos_gaps) >= 3:
-        threshold = _natural_threshold(pos_gaps)
-        # Se nessun break naturale e abbiamo un fallback, usalo
-        if threshold > max(pos_gaps) and global_threshold is not None:
-            threshold = global_threshold
-    elif global_threshold is not None:
-        threshold = global_threshold
-    else:
-        # Pochi gap, nessun fallback → euristica mediana
-        threshold = statistics.median(pos_gaps) * 2
-
-    n_cols = 1
-    for g in gaps:
-        if g > threshold:
-            n_cols += 1
-    return n_cols
-
-
-def count_columns_universal(particles: list[dict],
-                            k: float = 0.3,
-                            method: str = 'maxjump') -> int:
-    """Detect column count with row-mode voting.
-
-    Each row (>= 2 particles) votes for a column count; the mode wins.
-    Uses ALL particles — effective on both numeric and text-heavy tables.
-
-    Methods:
-        - ``'maxjump'``: soglia adattiva dal salto massimo nei gap (default).
-          Validato cross-domain: PubTables 79.7%, FinTabNet 77.6%, gap 2.1pp.
-        - ``'fixed'``: soglia fissa ``gap > avg_w * k``.
-          Validato su PubTables: 66.6% col exact con k=0.3.
-
-    Args:
-        particles: All particles on the page.
-        k: Gap-to-width ratio threshold (solo per method='fixed').
-        method: ``'maxjump'`` (default) o ``'fixed'``.
-
-    Returns:
-        Most common column count across all rows.
-    """
-    if len(particles) < 2:
-        return max(1, len(particles))
-
-    rows = _group_into_rows(particles)
-
-    if method == 'maxjump':
-        # Calcola threshold globale come fallback per righe con pochi gap
-        all_gaps = []
-        for row in rows:
-            if len(row) < 2:
-                continue
-            ps = sorted(row, key=lambda p: p['x0'])
-            for i in range(len(ps) - 1):
-                g = ps[i + 1]['x0'] - ps[i]['x1']
-                if g > 0:
-                    all_gaps.append(g)
-        global_threshold = _natural_threshold(all_gaps) if all_gaps else None
-
-        votes = []
-        for row in rows:
-            if len(row) < 2:
-                continue
-            votes.append(_count_cols_maxjump(row, global_threshold))
-    else:
-        votes = []
-        for row in rows:
-            if len(row) < 2:
-                continue
-            votes.append(_count_cols_ratio(row, k=k))
-
-    if not votes:
-        return 1
-
-    return Counter(votes).most_common(1)[0][0]
 
 
 # ─── Sensing: columns ────────────────────────────────────────────────
@@ -703,7 +566,6 @@ def sense_page(particles: list[dict]) -> dict:
         Dict with keys:
             - ``particles``: Modified particle list
             - ``columns``: Number of detected structural columns
-            - ``columns_universal``: Universal column count (ratio-based)
             - ``headers``: Number of promoted column headers
             - ``row_labels``: Number of promoted row labels
             - ``specs``: Number of promoted spec labels
@@ -712,12 +574,8 @@ def sense_page(particles: list[dict]) -> dict:
     """
     if len(particles) < 5:
         return {'particles': particles,
-                'columns': 0, 'columns_universal': 0,
-                'headers': 0, 'specs': 0, 'sections': 0,
-                'proofread': 0}
-
-    # 0. Universal column count (before any promotion)
-    n_cols_universal = count_columns_universal(particles)
+                'columns': 0, 'headers': 0, 'specs': 0,
+                'sections': 0, 'proofread': 0}
 
     # 1. Structural skeleton
     columns = detect_columns(particles)
@@ -740,7 +598,6 @@ def sense_page(particles: list[dict]) -> dict:
     return {
         'particles': particles,
         'columns': len(columns),
-        'columns_universal': n_cols_universal,
         'headers': len(promoted_headers),
         'row_labels': len(promoted_row_labels),
         'specs': len(promoted_specs),

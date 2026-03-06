@@ -39,7 +39,7 @@ from multiprocessing import Pool
 
 import numpy as np
 
-from morph.core.sense import _group_into_rows, _count_cols_ratio
+from morph.bench.grid import _group_into_rows, _count_cols_ratio
 from morph.bench.pubtables import (
     find_pairs as find_pairs_pubtables,
     json_to_particles,

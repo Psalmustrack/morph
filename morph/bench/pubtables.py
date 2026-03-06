@@ -31,6 +31,7 @@ from pathlib import Path
 
 from morph.core.typify import typify_word
 from morph.core.sense import sense_page
+from morph.bench.grid import count_columns_universal, count_rows_universal
 from morph.core.field import extract_page
 
 # Default dataset path — override with PUBTABLES_ROOT env var
@@ -236,11 +237,9 @@ def evaluate_table(
 
     gt_cols = len(gt['columns'])
     gt_rows = len(gt['rows'])
-    det_cols = sense_result.get(
-        'columns_universal', count_columns_detected(sensed),
-    )
+    det_cols = count_columns_universal(sensed)
     det_cols_grid = count_columns_detected(sensed)
-    det_rows = count_rows_from_particles(sensed)
+    det_rows = count_rows_universal(sensed)
     det_entities = field_result['stats']['entities']
     det_specs = field_result['stats']['total_specs']
     det_mapped = field_result['stats']['mapped']
