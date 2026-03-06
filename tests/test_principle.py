@@ -2,7 +2,7 @@
 """
 Test diretto del principio percettivo su tutti i dataset benchmark.
 
-Lancia bench/boundaries.py su TUTTE le tabelle PubTables + FinTabNet,
+Lancia bench/boundaries.py su TUTTE le tabelle PubTables + FinTabNet + HVAC,
 asse X e Y, e stampa il report completo.
 
 Uso::
@@ -18,6 +18,7 @@ import time
 
 from morph.bench.boundaries import (
     evaluate_table,
+    find_pairs_hvac,
     print_report,
 )
 from morph.bench.pubtables import find_pairs as find_pairs_pubtables
@@ -42,7 +43,7 @@ def run_dataset(name, pairs, axis, cores):
     results = []
     skipped = 0
 
-    if cores > 1:
+    if cores > 1 and len(pairs) > 4:
         with Pool(cores, initializer=_init_worker, initargs=(axis,)) as pool:
             for r in pool.imap_unordered(_eval_worker, pairs, chunksize=64):
                 if r is None:
@@ -86,17 +87,24 @@ def main():
     pub_pairs = find_pairs_pubtables(limit=None)
     random.seed(args.seed)
     fin_pairs = find_pairs_fintabnet(limit=None)
+    hvac_pairs = find_pairs_hvac()
 
     t_start = time.time()
 
+    all_results = []
     pub_results = run_dataset('PubTables-1M', pub_pairs, args.axis, args.cores)
+    all_results.extend(pub_results)
     fin_results = run_dataset('FinTabNet', fin_pairs, args.axis, args.cores)
+    all_results.extend(fin_results)
+    if hvac_pairs:
+        hvac_results = run_dataset('HVAC', hvac_pairs, args.axis, args.cores)
+        all_results.extend(hvac_results)
 
     t_total = time.time() - t_start
 
     # Riepilogo cross-domain
-    total_gaps = sum(r['total'] for r in pub_results + fin_results)
-    total_tables = len(pub_results) + len(fin_results)
+    total_gaps = sum(r['total'] for r in all_results)
+    total_tables = len(all_results)
 
     print(f"\n{'=' * 65}")
     print(f"  RIEPILOGO")

@@ -37,6 +37,45 @@ from morph.bench.grits import find_pairs_fintabnet
 
 
 # ---------------------------------------------------------------------------
+# Dataset HVAC (terzo dominio)
+# ---------------------------------------------------------------------------
+
+def find_pairs_hvac(limit: int | None = None) -> list[tuple]:
+    """Scopre coppie (JSON, XML) nel dataset HVAC annotato a mano.
+
+    Il dataset vive in /mnt/dati/home/Progetti/dataset/hvac/ con:
+      - words/<name>_words.json (particelle PyMuPDF)
+      - test/<name>.xml (GT colonne/righe in formato PASCAL-VOC)
+    """
+    import os
+    root = os.environ.get(
+        'HVAC_ROOT',
+        '/mnt/dati/home/Progetti/dataset/hvac',
+    )
+    words_dir = os.path.join(root, 'words')
+    test_dir = os.path.join(root, 'test')
+
+    if not os.path.isdir(words_dir) or not os.path.isdir(test_dir):
+        return []
+
+    xmls = {}
+    for f in os.scandir(test_dir):
+        if f.name.endswith('.xml'):
+            xmls[f.name.replace('.xml', '')] = f.path
+
+    pairs = []
+    for f in os.scandir(words_dir):
+        if f.name.endswith('_words.json'):
+            key = f.name.replace('_words.json', '')
+            if key in xmls:
+                pairs.append((f.path, xmls[key]))
+
+    if limit and limit > 0:
+        pairs = pairs[:limit]
+    return pairs
+
+
+# ---------------------------------------------------------------------------
 # Classificazione gap: ground truth
 # ---------------------------------------------------------------------------
 
@@ -330,7 +369,8 @@ def main():
     parser.add_argument('--cores', type=int, default=4)
     parser.add_argument('--axis', choices=['x', 'y', 'both'], default='x',
                         help='Asse da testare: x (colonne), y (righe), both')
-    parser.add_argument('--dataset', choices=['pubtables', 'fintabnet', 'both'],
+    parser.add_argument('--dataset',
+                        choices=['pubtables', 'fintabnet', 'hvac', 'both', 'all'],
                         default='pubtables')
     args = parser.parse_args()
 
@@ -344,10 +384,12 @@ def main():
     print(f"{'=' * 65}")
 
     datasets = []
-    if args.dataset in ('pubtables', 'both'):
+    if args.dataset in ('pubtables', 'both', 'all'):
         datasets.append(('PubTables-1M', find_pairs_pubtables))
-    if args.dataset in ('fintabnet', 'both'):
+    if args.dataset in ('fintabnet', 'both', 'all'):
         datasets.append(('FinTabNet', find_pairs_fintabnet))
+    if args.dataset in ('hvac', 'all'):
+        datasets.append(('HVAC', find_pairs_hvac))
 
     for ds_name, find_fn in datasets:
         random.seed(args.seed)
