@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "morph"
+version = "0.1.0"
+description = "Morphogenetic table extraction from PDF documents"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    {name = "Eugeniu Tacu"},
+]
+keywords = ["table-extraction", "pdf", "morphogenetic", "document-parsing"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Text Processing",
+]
+
+dependencies = [
+    "PyMuPDF>=1.23",
+]
+
+[project.optional-dependencies]
+bench = [
+    "numpy",
+    "rapidfuzz>=3.0",
+]
+
+[project.urls]
+Repository = "https://github.com/etacu/morph"
+
+[tool.setuptools.packages.find]
+include = ["morph*"]

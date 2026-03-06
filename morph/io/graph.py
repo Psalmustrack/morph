@@ -1,0 +1,226 @@
+"""
+morph.io.graph — Entity Extraction → Graph L0 Format
+=====================================================
+
+Converts Morph's structured output ``{entity: {spec: {value, unit}}}``
+into Graph L0 nodes compatible with the knowledge graph.
+
+The graph is the native data format. SQL is a derived view (see sql.py).
+
+Node types are classified from model code prefixes using brand-specific
+rules (e.g., "RAS-4FSXNME" → outdoor_unit, "RPI-1.5FSR1E" → indoor_unit).
+
+Dependencies:
+    - ``knowledge`` module (optional, for header normalization)
+    - ``parsers`` module (optional, for numeric parsing)
+
+When these are not available (standalone usage), raw labels and string
+values are used instead.
+
+Author: Eugeniu Tacu, 2026
+"""
+
+import re
+
+# Soft dependencies — work without them in standalone mode
+try:
+    import knowledge
+    from parsers import _parse_numeric
+except ImportError:
+    knowledge = None
+    _parse_numeric = None
+
+# ─── Model code → node type classification ───────────────────────────
+
+# Map model code prefix → Graph L0 node type
+# Order: more specific first (compiled regex)
+_MODEL_TYPE_RULES: list[tuple[re.Pattern, str]] = [
+    # Hitachi VRF indoor
+    (re.compile(r'^RPI[LH]?-'), 'indoor_unit'),
+    (re.compile(r'^RPK-'), 'indoor_unit'),
+    (re.compile(r'^RPC-'), 'indoor_unit'),
+    (re.compile(r'^RPF[I]?-'), 'indoor_unit'),
+    (re.compile(r'^RCI[M]?-'), 'indoor_unit'),
+    (re.compile(r'^RCD-'), 'indoor_unit'),
+    (re.compile(r'^RNC-'), 'indoor_unit'),
+    # Hitachi VRF outdoor
+    (re.compile(r'^RAS-\d'), 'outdoor_unit'),
+    (re.compile(r'^RASM-'), 'outdoor_unit'),
+    # Hitachi residential
+    (re.compile(r'^RAK-'), 'indoor_unit'),
+    (re.compile(r'^RAC-'), 'outdoor_unit'),
+    (re.compile(r'^RAM-'), 'outdoor_unit'),
+    (re.compile(r'^RAD-'), 'indoor_unit'),
+    (re.compile(r'^RAF-'), 'indoor_unit'),
+    (re.compile(r'^RAI-'), 'indoor_unit'),
+    # Hitachi hydronic
+    (re.compile(r'^RWM-'), 'outdoor_unit'),
+    (re.compile(r'^RWD-'), 'outdoor_unit'),
+    (re.compile(r'^RWH-'), 'outdoor_unit'),
+    (re.compile(r'^RWLT-'), 'outdoor_unit'),
+    (re.compile(r'^HWM-'), 'outdoor_unit'),
+    (re.compile(r'^HWD-'), 'outdoor_unit'),
+    # Hitachi DHW / tanks
+    (re.compile(r'^DHWT-'), 'tank'),
+    # Hitachi chiller
+    (re.compile(r'^KPI-'), 'outdoor_unit'),
+    (re.compile(r'^RCME-'), 'outdoor_unit'),
+    # Hitachi controller
+    (re.compile(r'^PC-AR'), 'control'),
+    # Hitachi accessories
+    (re.compile(r'^ATW-'), 'accessory'),
+    (re.compile(r'^SPX-'), 'accessory'),
+    (re.compile(r'^CH-AP'), 'accessory'),
+    # Daikin
+    (re.compile(r'^FTXM'), 'indoor_unit'),
+    (re.compile(r'^FXMQ'), 'indoor_unit'),
+    (re.compile(r'^RXM'), 'outdoor_unit'),
+    (re.compile(r'^RXPA'), 'outdoor_unit'),
+    (re.compile(r'^ERQ'), 'outdoor_unit'),
+    # Toshiba
+    (re.compile(r'^RAS-B'), 'indoor_unit'),
+    (re.compile(r'^RAS-M\d'), 'outdoor_unit'),
+    (re.compile(r'^MMK-'), 'indoor_unit'),
+    (re.compile(r'^MMY-'), 'outdoor_unit'),
+    (re.compile(r'^MMP-'), 'outdoor_unit'),
+    # Mitsubishi Electric
+    (re.compile(r'^MSZ-'), 'indoor_unit'),
+    (re.compile(r'^MUZ-'), 'outdoor_unit'),
+    (re.compile(r'^PUMY-'), 'outdoor_unit'),
+    (re.compile(r'^PEFY-'), 'indoor_unit'),
+    (re.compile(r'^PFFY-'), 'indoor_unit'),
+    (re.compile(r'^PLFY-'), 'indoor_unit'),
+    # Midea
+    (re.compile(r'^M[ADST]-'), 'outdoor_unit'),
+]
+
+# Regex for "[Section] Label" format
+_SECTION_RE = re.compile(r'^\[([^\]]*)\]\s*(.*)')
+
+
+def _classify_node_type(entity_name: str) -> str:
+    """Classify node type from entity name (model code prefix).
+
+    Args:
+        entity_name: Model code string.
+
+    Returns:
+        Graph L0 node type (e.g., 'indoor_unit', 'outdoor_unit').
+    """
+    for pat, node_type in _MODEL_TYPE_RULES:
+        if pat.match(entity_name):
+            return node_type
+    return 'product_unit'
+
+
+def _strip_section(spec_key: str) -> tuple[str, str]:
+    """Extract section from "[Section] Label" format.
+
+    Returns:
+        Tuple (section, label). If no section: ('', key).
+    """
+    m = _SECTION_RE.match(spec_key)
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    return '', spec_key.strip()
+
+
+def morpho_to_graph(
+    morpho_result: dict,
+    brand: str = 'hitachi',
+    catalog_name: str = '',
+    page: int = 0,
+) -> dict:
+    """Convert Morph output to Graph L0 format.
+
+    Takes the structured output from :func:`morph.core.field.extract_page`
+    and produces nodes compatible with the knowledge graph schema.
+
+    Args:
+        morpho_result: Output of extract_page().
+        brand: Brand name for ID generation and tracking.
+        catalog_name: Catalog name for source tracking.
+        page: Page number for source tracking.
+
+    Returns:
+        Dict with keys:
+            - ``nodes``: List of Graph L0 nodes
+            - ``edges``: Empty list (edges are generated by LLM, not Morph)
+            - ``stats``: ``{total_nodes, total_properties, normalized, raw}``
+    """
+    # Active learning tracking (if knowledge module available)
+    if knowledge is not None:
+        knowledge._CURRENT_SOURCE = f"{catalog_name}:p{page}" if catalog_name else ""
+
+    data = morpho_result.get('data', {})
+    nodes = []
+    total_props = 0
+    normalized_count = 0
+    raw_count = 0
+
+    for entity_name, specs in data.items():
+        node_type = _classify_node_type(entity_name)
+        node_id = f"{brand}.{node_type}_{len(nodes):04d}"
+
+        properties = {}
+        for spec_key, spec_info in specs.items():
+            section, raw_label = _strip_section(spec_key)
+
+            # Normalize header (if knowledge module available)
+            if knowledge is not None:
+                canonical = knowledge.normalize_one(raw_label)
+            else:
+                canonical = raw_label
+
+            if canonical != raw_label:
+                normalized_count += 1
+            else:
+                raw_count += 1
+
+            # Parse value: try numeric, fallback to string
+            raw_value = spec_info.get('value', '')
+            if _parse_numeric is not None:
+                parsed = _parse_numeric(raw_value)
+                value = parsed if parsed is not None else raw_value
+            else:
+                value = raw_value
+
+            prop = {'value': value}
+            if spec_info.get('unit'):
+                prop['unit'] = spec_info['unit']
+            if section:
+                prop['section'] = section
+
+            # Handle duplicate canonical keys (different sections)
+            prop_key = canonical
+            if prop_key in properties:
+                prop_key = f"{canonical}_{section.lower().replace(' ', '_')}" if section else f"{canonical}_{total_props}"
+
+            properties[prop_key] = prop
+            total_props += 1
+
+        node = {
+            'id': node_id,
+            'type': node_type,
+            'name': entity_name,
+            'properties': properties,
+            '_meta': {
+                'brand': brand,
+                'catalog': catalog_name,
+                'page': page,
+                'source': 'morph',
+            },
+        }
+        nodes.append(node)
+
+    return {
+        'nodes': nodes,
+        'edges': [],  # edges from LLM enrichment, not from Morph
+        'stats': {
+            'total_nodes': len(nodes),
+            'total_properties': total_props,
+            'normalized': normalized_count,
+            'raw': raw_count,
+            'normalization_rate': round(normalized_count / max(1, normalized_count + raw_count) * 100, 1),
+        },
+    }
