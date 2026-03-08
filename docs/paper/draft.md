@@ -6,14 +6,14 @@
 
 ## Abstract
 
-We present Morph, a document structure recognition system based on a
-morphogenetic field equation that extracts tabular data from PDF documents
-without training data, GPU inference, or domain-specific rules.  The system
-operates on three bio-inspired layers: lexical classification (gene
-expression), spatial re-typing (cellular differentiation), and field-based
-binding (morphogenetic attraction).  At the core lies a single perceptual
-principle: cell boundaries emerge from the maximum discontinuity in the
-distribution of spatial gaps between consecutive text elements.
+We present Morph, a document structure recognition system that extracts
+tabular data from PDF documents without training data, GPU inference, or
+domain-specific rules.  The system operates on three layers: lexical
+classification, spatial re-typing, and field-based binding.  At the core
+lies a perceptual principle: cell boundaries emerge from the maximum
+discontinuity in the ratio of consecutive sorted spatial gaps — a technique
+related to classical bimodal thresholding methods (Otsu, 1979; Jenks, 1967)
+but operating directly on gap ratios rather than variance or class counts.
 
 We evaluate Morph on six benchmarks spanning five document types: scientific
 tables (PubTables-1M, 93K tables), financial tables (FinTabNet, 9K tables),
@@ -25,7 +25,7 @@ On the GriTS benchmark, Morph reaches 79.9% on PubTables-1M and 78.1% on
 FinTabNet — a cross-domain gap of only 1.8 percentage points — while
 processing 560 tables per second on a laptop CPU.
 
-We characterise the system's fundamental limitation: the interaction matrix W
+We characterise the system's fundamental limitation: the interaction matrix
 restricts bonds to NUMERIC particles, leaving 80.8% of tokens in text-heavy
 documents unreachable.  This limitation is structural, not parametric, and
 suggests a clear path for future extension.
@@ -46,49 +46,63 @@ significant cost: thousands of annotated training images, hours of GPU
 training, and degraded performance when applied cross-domain without
 fine-tuning (typically 5-15 pp drops [4]).
 
-We propose a fundamentally different approach based on a simple observation:
-**the structure of a document is implicit in the spatial distribution of its
-text elements**.  A table does not need to be detected by a neural network —
-its columns emerge from vertical alignment, its rows from horizontal
-proximity, and its cell boundaries from gaps in the text.  This structure is
-self-organising: it exists in the data, waiting to be read.
+Classical methods take the opposite approach.  T-Recs [5] clusters word
+segments bottom-up by vertical interleaving.  Docstrum [6] analyses
+nearest-neighbour distances and angles.  Voronoi-based methods [7] tessellate
+connected components to find page regions.  Tools like Tabula [8], Camelot
+[9], and pdfplumber [10] use whitespace analysis and line detection.  These
+methods are interpretable and require no training, but rely on fixed geometric
+tests or hand-tuned parameters that degrade outside their design domain.
 
-Morph formalises this observation through a morphogenetic field equation
-inspired by biological development.  In embryogenesis, cells differentiate
-into tissues not through central coordination but through local chemical
-gradients — morphogenetic fields — that encode positional information.
-Similarly, Morph assigns each text element a type based on local context, then
-uses a field equation to bind values to their structural labels.
+We propose an approach that draws on both traditions.  The key observation
+is that **the structure of a document is implicit in the spatial distribution
+of its text elements**.  A table's columns emerge from vertical alignment,
+its rows from horizontal proximity, and its cell boundaries from gaps in
+the text.  This observation is not new — it underlies every spatial
+clustering method from Docstrum onward.  What we contribute is a specific
+formalisation: a field equation, borrowed from spatial interaction models in
+geography [11, 12], applied to lexically typed document particles, with
+boundary detection based on a ratio-of-consecutive-sorted-gaps technique
+related to classical bimodal thresholding [13, 14, 15].
+
+We frame the system using biological analogies — lexical classification as
+gene expression, spatial re-typing as cellular differentiation, field-based
+binding as morphogenetic attraction.  The concept of morphogenetic fields
+originates with Gurwitsch [16] in developmental biology; the mathematical
+framework of reaction-diffusion pattern formation was provided by Turing
+[17].  Doursat et al. [18] proposed "morphogenetic engineering" as a
+paradigm for programmable self-organising systems.  To our knowledge, Morph
+is the first system to apply this paradigm to document structure recognition.
 
 The approach has three distinctive properties:
 
-1. **Zero training.**  All parameters are derived from first principles and
-   validated empirically.  No annotated data, no model weights, no
+1. **Zero training.**  All parameters are derived empirically and remain
+   fixed across all experiments.  No annotated data, no model weights, no
    backpropagation.
 
 2. **Cross-domain stability.**  The same constants work on scientific papers,
    financial filings, HVAC catalogues, and scanned receipts — a GriTS gap of
-   only 1.8 pp between PubTables-1M and FinTabNet, compared to 5-15 pp for
-   neural methods without fine-tuning.
+   only 1.8 pp between PubTables-1M and FinTabNet.
 
 3. **Full interpretability.**  Every decision is traceable: which text span
    was classified as what type, which field attracted which value to which
-   entity, and why.  No black boxes.
+   entity, and why.
 
 Our contributions are:
 
-- A **perceptual principle** for boundary detection based on maximum ratio
-  discontinuity in sorted gap distributions, validated on 13.8 million gaps
-  across 102K tables with 93.3% precision (Section 3.5).
+- A **perceptual boundary detection principle** based on the maximum ratio
+  of consecutive sorted gaps, related to Otsu's method [13] and Jenks
+  natural breaks [14] but with different mechanism and complexity.  Validated
+  on 13.8 million gaps across 102K tables with 93.3% precision (Section 3.5).
 
-- A **morphogenetic field equation** that maps numeric values to structural
-  entities through a 3D distance function with directional anisotropy,
-  achieving 79.9% GriTS on PubTables-1M without training (Section 3.4).
+- A **field equation for document particles**, adapting the gravitational
+  interaction model [11] to lexically typed text elements with directional
+  anisotropy, achieving 79.9% GriTS on PubTables-1M without training
+  (Section 3.4).
 
 - A **six-benchmark evaluation** spanning tables, receipts, forms, and
-  document layout, demonstrating both the strengths (93.3% boundary precision,
-  cross-domain stability) and the clearly characterised limitations (the W
-  matrix wall) of the approach (Section 5).
+  document layout, demonstrating both the strengths and the clearly
+  characterised limitations of the approach (Section 5).
 
 - An **open-source implementation** in ~6,200 lines of Python with no GPU
   dependencies, processing 560 tables per second on a laptop CPU.
@@ -97,52 +111,157 @@ Our contributions are:
 
 ## 2. Related Work
 
-### 2.1 Table Structure Recognition
+### 2.1 Classical Table Structure Recognition
 
-Modern table structure recognition is dominated by deep learning.  TATR [1]
-uses a Detection Transformer (DETR) fine-tuned on PubTables-1M to predict
-cell bounding boxes, achieving 95.7% GriTS_Top.  TableFormer [2] models table
-structure as HTML token generation, reaching 92.1%.  Both require annotated
-training images and GPU inference.
+Table structure recognition has a long history predating deep learning.
+Zanibbi, Blostein, and Cordy [19] provide the canonical survey, organising
+methods by table models, observations, transformations, and inferences.
+Embley et al. [20] define the functional analysis step: classifying cells
+into head, stub, and body regions.
 
-Earlier heuristic methods used horizontal and vertical line detection [5],
-connected component analysis [6], or graph-based clustering [7].  These
-methods are interpretable and fast but rely on domain-specific rules and
-degrade outside their design domain.
+**Bottom-up spatial clustering.**  T-Recs [5] groups word segments by
+vertical interleaving — if two words overlap in Y-projection, they belong
+to the same column.  This is domain-independent and works on OCR output,
+but uses a binary geometric test rather than adaptive thresholding.
+Docstrum [6] analyses the distribution of nearest-neighbour distances and
+angles to cluster words into lines and blocks.  Kise et al. [7] use
+Voronoi tessellation of connected components — a natural spatial partition
+that requires no parameters.
 
-Morph occupies a middle ground: it uses no training data (like heuristic
-methods) but derives its rules from a universal principle (like learned
-methods derive theirs from data).  The perceptual principle replaces both
-learned features and hand-crafted rules with a single statistical test on gap
-distributions.
+**Whitespace and line detection.**  Shafait and Smith [21] detect whitespace
+rectangles as column gutters, implemented in the Tesseract OCR engine.
+Itonori [22] combines ruling line positions with text-block arrangement.
+These methods assume explicit visual separators (lines, wide gaps) and
+fail on dense borderless tables.
 
-### 2.2 Document Layout Analysis
+**Practical tools.**  Tabula [8] uses two modes: line-intersection detection
+(Lattice) and vertical whitespace rivers (Stream).  Camelot [9] extends
+this with OpenCV morphological operations.  pdfplumber [10] infers structure
+from explicit and implied lines.  All three require manual parameter tuning
+and assume consistent vertical whitespace.
 
-Layout analysis extends beyond tables to full document segmentation.
+Morph differs from these classical methods in three ways: (a) boundary
+detection uses an adaptive threshold derived from the gap distribution
+itself, not a fixed geometric test; (b) particles are lexically typed before
+spatial analysis, providing semantic context; (c) binding uses a continuous
+field equation rather than discrete clustering.
+
+### 2.2 Deep Learning for Table Recognition
+
+Modern table recognition is dominated by deep learning.  TATR [1] uses a
+Detection Transformer (DETR) fine-tuned on PubTables-1M, achieving 95.7%
+GriTS_Top.  TableFormer [2] generates table structure as HTML token sequences.
+Graph-based approaches represent words as typed nodes: Riba et al. [23]
+classify word nodes with 3 content types (numeric, alphabet, symbol) in a
+GNN for invoice tables; Qasim et al. [24] predict same-row/same-column
+adjacency; GFTE [25] combines textual, positional, and visual features.
+Chen et al. [26] introduce gDSA with 80K images and 4M+ relation
+annotations.  All these systems learn type interactions implicitly from
+labelled data; Morph encodes them explicitly in a handcrafted matrix.
+
+### 2.3 Document Layout Analysis
+
 LayoutLMv3 [3] jointly models text, image, and layout in a multimodal
-transformer, achieving state-of-the-art on DocBank and DocLayNet.  UDOP [8]
-unifies document understanding tasks through a vision-language model.  These
-approaches require massive pretraining (11M+ document images) and
-task-specific fine-tuning.
+transformer.  UDOP [27] unifies document tasks through a vision-language
+model.  These approaches require massive pretraining (11M+ images) and
+task-specific fine-tuning.  They learn *what* structure looks like from
+examples; Morph reasons about *why* structure exists from spatial
+relationships.
 
-The key difference from our work: these systems learn *what* document
-structure looks like from examples; Morph reasons about *why* structure exists
-from spatial relationships.
+### 2.4 Bimodal Thresholding and Boundary Detection
 
-### 2.3 Self-Organising Systems
+The problem of finding a threshold to separate a bimodal distribution has a
+rich history.
 
-The idea that complex structure can emerge from simple local rules has a long
-history in computational morphogenesis [9], cellular automata [10], and
-swarm intelligence [11].  Turing's reaction-diffusion model [12] demonstrates
-how spatial patterns emerge from chemical gradients without central control.
+**Otsu's method** [13] selects the threshold that maximises inter-class
+variance on a histogram.  It is the standard for image binarisation and is
+mathematically equivalent to Fisher's linear discriminant for 1D data.
+Otsu requires binned data (histograms) and is O(L) in the number of
+intensity levels.
 
-Our field equation is inspired by this tradition.  The morphogenetic field
-Phi acts as an attraction potential between particles, and the perceptual
-principle (_natural_threshold) serves as an adaptive differentiation signal —
-analogous to concentration thresholds in biological morphogens.
+**Jenks natural breaks** [14], equivalent to Fisher's optimal partitioning
+[28], minimises within-class variance for 1D data classification.  Jenks
+requires specifying the number of classes k in advance and is O(kn^2).
 
-To our knowledge, Morph is the first system to apply morphogenetic field
-principles to document structure recognition.
+**Hartigan's dip test** [29] detects bimodality by measuring the maximum
+deviation between the empirical CDF and the best-fitting unimodal
+distribution.  It returns a p-value (is this bimodal?) but not a threshold
+(where to cut).
+
+**The gap procedure** in bioinformatics [30] sorts all pairwise genetic
+distances and looks for the largest absolute gap as a cluster boundary.
+It requires no parameters but uses absolute gaps rather than ratios,
+making it scale-dependent.
+
+**Ratio of consecutive spacings** in physics [31, 32].  Oganesyan and Huse
+introduced r_n = s_n / s_{n-1} (the ratio of consecutive energy level
+spacings) as a diagnostic for localisation transitions.  The distribution of
+all ratios characterises the system's phase.  This is the same mathematical
+operation as our perceptual principle, but applied to unsorted sequential
+data for distributional analysis, not to sorted gaps for threshold finding.
+
+The **spacings** of order statistics — gaps between consecutive sorted
+values — are a classical topic in mathematical statistics [33].  The maximum
+spacing is a known test statistic for uniformity; the ratio of consecutive
+spacings has been studied theoretically [34] but not as a thresholding
+mechanism.
+
+Our perceptual principle (Section 3.5) belongs to this family.  It can be
+seen as an O(n log n) heuristic that approximates the k=2 case of Jenks/
+Fisher optimal partitioning, using gap ratios (scale-invariant) rather
+than absolute gaps (scale-dependent, as in the gap procedure) or variance
+(histogram-dependent, as in Otsu).  The specific combination — sorting gaps,
+computing ratios of consecutive sorted values, taking the maximum ratio as
+the split point — does not appear in the prior literature as a named method.
+
+### 2.5 Spatial Interaction Models
+
+The field equation in Morph (Section 3.4) has the mathematical form of a
+**gravitational interaction model**: I_ij = k * M_i * M_j / d_ij^beta.
+This form originates in social physics with Stewart [11] and Zipf [35],
+and is widely used in geography, transportation, and urban planning.
+
+**Inverse distance weighting** (IDW) [12] uses the same kernel w = 1/d^alpha
+for spatial interpolation in geostatistics.  The mathematical form of
+Morph's field equation is IDW with typed interaction weights.
+
+**Potential fields** in robotics use attractive and repulsive forces in
+continuous space for path planning [36].  The algebra is analogous but the
+domain (robot navigation vs. document parsing) is entirely different.
+
+No prior work applies gravitational or potential field models to document
+structure recognition.  The novelty lies in the application domain and in
+the typed interaction matrix W, which replaces scalar "mass" with a
+type-pair affinity encoding document layout conventions.
+
+### 2.6 Cell and Token Classification
+
+Rule-based classification of text tokens has deep roots in NLP.  The MUC
+conferences [37] defined named entity recognition using cascaded regex
+patterns and gazetteers (vocabulary lists) for types such as DATE, MONEY,
+and PERCENT.  GATE/JAPE [38] formalised this as finite state transduction
+over annotations.  In table analysis, Hu et al. [39] use spatial and
+lexical criteria to classify headers; Fang et al. [40] systematically study
+features for header vs. data cell classification; Koci et al. [41] define
+five cell roles (header, attribute, metadata, data, derived) using content
+and style features.
+
+**Spatial context for type refinement.**  The concept that a cell's role
+depends on its neighbours is well-established.  Abraham and Erwig [42]
+infer spreadsheet headers from spatial position — cells above or left of
+data cells are classified as headers.  This is the closest precedent to
+Morph's spatial promotion.  Pinto and McCallum [43] use CRFs to classify
+table lines into 12 categories with sequential dependencies.  Sato/Zhang
+et al. [44] demonstrate that neighbouring column context is essential for
+semantic type detection, using topic modelling and CRFs.
+
+Morph's Layer 1 (Section 3.2) follows the well-established pattern of
+regex/vocabulary cascade classification.  Layer 1b (Section 3.3) extends
+this with deterministic spatial promotion — reclassifying token types based
+on neighbour context.  The term "spatial promotion" and the specific
+integration of intrinsic typing followed by neighbour-based reclassification
+as a two-layer architecture appear to be new, though the individual
+components have clear precedents.
 
 ---
 
@@ -158,16 +277,15 @@ P = {p_1, p_2, ..., p_N}
 p_i = (x_i, y_i, z_i, tau_i, text_i)
 ```
 
-Where (x, y) are the bounding box centre coordinates, z = log_10(|v| + 1) is
-the value magnitude for numeric particles (encoding the scale of the number),
-tau is the particle type, and text is the raw string content.
+Where (x, y) are the bounding box centre coordinates, z = log_10(|v| + 1)
+is the value magnitude for numeric particles (encoding the scale of the
+number), tau is the particle type, and text is the raw string content.
 
-The key insight is that **document space is three-dimensional**.  The x,y
-plane encodes *where* a value is; the z axis encodes *what magnitude* it has.
-Values of different scales (COP ~ 4.0, weight ~ 25 kg, noise ~ 55 dB) separate
-naturally along z without explicit classification.
+The x,y plane encodes *where* a value is; the z axis encodes *what
+magnitude* it has.  Values of different scales (COP ~ 4.0, weight ~ 25 kg,
+noise ~ 55 dB) separate naturally along z without explicit classification.
 
-### 3.2 Layer 1: Gene Expression (Lexical Classification)
+### 3.2 Layer 1: Lexical Classification
 
 Each text span is classified into one of eight types through a deterministic
 cascade — first match wins:
@@ -181,21 +299,22 @@ cascade — first match wins:
 | 5 | SPEC_LABEL | Spec term match | Sound pressure |
 | 6 | TEXT | Default | Everything else |
 
-No training, no model weights.  Classification is deterministic from
-vocabulary sets and compiled regex patterns.  The type system is the
-*genome* — it encodes what a particle *could be* based on its intrinsic
-properties.
+This follows the established pattern of cascaded regex and gazetteer
+matching for named entity recognition [37, 38], adapted to document
+particles.  Classification is deterministic from vocabulary sets and
+compiled regex patterns — no training, no model weights.
 
 When operating without domain vocabulary (as in all benchmark evaluations),
 only NUMERIC, UNIT, and TEXT types are active.
 
-### 3.3 Layer 1b: Cellular Differentiation (Spatial Sensing)
+### 3.3 Layer 1b: Spatial Sensing
 
-Particles may be **promoted** from TEXT to a structural type based on spatial
-context.  This layer implements four promotions:
+Particles may be **promoted** from TEXT to a structural type based on
+spatial context.  This extends the header inference approach of Abraham
+and Erwig [42] from spreadsheet regions to individual document particles.
 
-**Column detection.**  A vertical cluster of 3+ NUMERIC particles aligned on
-X (within an adaptive tolerance theta_x) defines a detected column.
+**Column detection.**  A vertical cluster of 3+ NUMERIC particles aligned
+on X (within adaptive tolerance theta_x) defines a detected column.
 theta_x = clamp(row_spacing / 2, 5, 25) px.
 
 **Header promotion.**  A TEXT particle directly above a detected column
@@ -203,23 +322,23 @@ theta_x = clamp(row_spacing / 2, 5, 25) px.
 
 **Spec-label promotion.**  A TEXT particle to the left of 2+ NUMERIC
 particles on the same Y-row is promoted to SPEC_LABEL.  The minimum count
-of 2 is *lateral inhibition*: isolated text-number pairs (e.g., page
+of 2 is *lateral inhibition* [17]: isolated text-number pairs (e.g., page
 numbers) are not promoted.
 
 **Section promotion.**  TEXT with font size exceeding the mean by 2 standard
 deviations is promoted to SECTION.
 
 Critically, sensing **only promotes** — it never downgrades an existing type.
-This ensures monotonic information gain: Layer 1 information is preserved,
-Layer 1b only adds.
+This ensures monotonic information gain.
 
 On HVAC catalogues, this layer alone improved extraction health from 35.7%
-to 63.4% (+27.7 pp) without touching any vocabulary — pure spatial inference.
+to 63.4% (+27.7 pp) without any vocabulary — pure spatial inference.
 
-### 3.4 Layer 2: The Morphogenetic Field Equation
+### 3.4 Layer 2: The Field Equation
 
 The field equation maps NUMERIC particles to structural entities (MODEL,
-SPEC_LABEL):
+SPEC_LABEL).  Its mathematical form adapts the gravitational interaction
+model [11, 12] to typed document particles:
 
 ```
 Phi(i -> j) = W(tau_i, tau_j) * A(i, j) / d(i, j)^alpha
@@ -232,10 +351,12 @@ d(i,j) = sqrt( (dx/sigma_x)^2 + (dy/sigma_y)^2 + (lambda_z * dz)^2 )
 ```
 
 Where sigma_x = 30 px (column width scale), sigma_y = 6 px (row height
-scale), and lambda_z is auto-calibrated from the z-spread of same-row values.
+scale), and lambda_z is auto-calibrated from the z-spread of same-row
+values.
 
-**Interaction matrix W.**  The matrix encodes attraction strength between
-particle types:
+**Interaction matrix W.**  Unlike the scalar "mass" in gravitational models,
+W encodes type-pair affinity — a handcrafted matrix that captures document
+layout conventions:
 
 ```
 W(NUMERIC, SPEC_LABEL) = 1.0    (row attraction)
@@ -244,21 +365,28 @@ W(NUMERIC, UNIT)       = 0.7    (unit association)
 W(NUMERIC, TEXT)       = -0.1   (slight repulsion)
 ```
 
-**Directional anisotropy A.**  The alignment factor captures the layout
-invariant that labels are to the left and headers are above:
+No prior work in document analysis uses an explicit typed interaction
+matrix with spatial decay.  Graph-based approaches [23, 24, 25] learn
+type interactions implicitly through GNN message passing; CRF-based
+methods [43, 44] learn pairwise potentials from labelled data.  Morph's W
+is handcrafted and fixed — more interpretable but less flexible.
+
+**Directional anisotropy A.**  The alignment factor encodes the universal
+layout invariant that labels are to the left and headers are above:
 
 ```
 A_row(i,j) = exp(-(dy^2) / sigma_y^2) * D_left(i,j)
 A_col(i,j) = exp(-(dx^2) / sigma_x^2) * D_above(i,j)
 ```
 
-Where D_left = 1.2 if j is left of i (0.8 otherwise) and D_above = 1.2 if
-j is above i (0.8 otherwise).
+Where D_left = 1.2 if j is left of i (0.8 otherwise) and D_above = 1.2
+if j is above i (0.8 otherwise).
 
-**Decay exponent: alpha = 0.5.**  Sub-linear decay (weaker than gravity or
-Coulomb force) allows distant but well-aligned particles to bind — alignment
-A dominates over distance at large separations, which matches the physical
-reality of tabular layout.
+**Decay exponent: alpha = 0.5.**  Sub-linear decay (weaker than
+gravitational alpha = 2 or Coulomb alpha = 1) allows distant but
+well-aligned particles to bind.  At large separations, alignment A
+dominates over distance, matching the physical reality of tabular layout
+where a label 300px away can still belong to the same row.
 
 Each NUMERIC particle is assigned to the structural entity with the highest
 Phi.  This produces entity-value-spec triples that constitute the extracted
@@ -266,8 +394,9 @@ structured data.
 
 ### 3.5 The Perceptual Principle
 
-At the core of the system lies a single boundary detection principle.  Given
-a list of positive gaps G = {g_1, ..., g_n} between consecutive particles:
+At the core of boundary detection lies a technique for finding the natural
+threshold in a bimodal distribution.  Given a list of positive gaps
+G = {g_1, ..., g_n} between consecutive particles:
 
 ```
 1. Sort:    g_(1) <= g_(2) <= ... <= g_(n)
@@ -277,19 +406,39 @@ a list of positive gaps G = {g_1, ..., g_n} between consecutive particles:
 5. Else:    threshold = (g_(i*) + g_(i*+1)) / 2
 ```
 
-**Intuition.**  Gaps in a table have a bimodal distribution: intra-cell gaps
-(small) and inter-cell gaps (large).  The point of maximum discontinuity in
-the ratio of consecutive sorted gaps is the natural boundary between the two
-modes.  No domain knowledge is required.
+**Relation to prior work.**  This technique belongs to the family of
+bimodal thresholding methods that includes Otsu's method [13] (maximise
+inter-class variance on histograms), Jenks natural breaks [14] (minimise
+within-class variance for k classes), and Hartigan's dip test [29] (detect
+bimodality via CDF deviation).  The mathematical operation — ratio of
+consecutive values — appears in physics as the Oganesyan-Huse ratio [31]
+for energy level spacing analysis, though applied to unsorted sequential
+data for a different purpose (phase transition detection, not threshold
+finding).
 
-When the gap distribution is unimodal (ratio < 1.5), the principle abstains
-rather than guess — producing no boundary.  This makes the system
-conservative: 89% of errors are false negatives (missed boundaries), not
-false positives.
+The specific combination in Morph differs from these predecessors:
 
-The principle applies identically to column boundaries (horizontal gaps) and
-row boundaries (vertical gaps), and extends to any 1D signal with a potential
-bimodal structure.
+| Method | Input | Mechanism | Output | Complexity |
+|--------|-------|-----------|--------|------------|
+| Otsu [13] | Histogram | Max inter-class variance | Threshold | O(L) |
+| Jenks [14] | Values | Min within-class variance | k thresholds | O(kn^2) |
+| Dip test [29] | Values | Max CDF deviation | p-value | O(n) |
+| Gap procedure [30] | Distances | Max absolute gap | Threshold | O(n log n) |
+| **This work** | **Gaps** | **Max ratio of sorted gaps** | **Threshold** | **O(n log n)** |
+
+The key differences are: (a) ratios are scale-invariant, unlike absolute
+gaps [30]; (b) no binning required, unlike Otsu [13]; (c) no k parameter,
+unlike Jenks [14]; (d) produces a threshold, not a p-value, unlike the
+dip test [29].
+
+**Intuition.**  Gaps in a table have a bimodal distribution: intra-cell
+gaps (small) and inter-cell gaps (large).  The point of maximum
+discontinuity in the ratio of consecutive sorted gaps is the natural
+boundary between the two modes.
+
+When the distribution is unimodal (max ratio < 1.5), the principle
+abstains rather than guess — producing no boundary.  This makes the system
+conservative: 89% of errors are false negatives, not false positives.
 
 ### 3.6 Grid Translation
 
@@ -297,14 +446,14 @@ For comparison with benchmark metrics that require a grid (rows x columns),
 a translator converts field-extracted particles into a grid structure:
 
 1. For each row of particles, compute horizontal gaps
-2. Apply `_natural_threshold` to find column boundaries
-3. If bimodal: boundaries from the max-jump threshold
+2. Apply the perceptual principle to find column boundaries
+3. If bimodal: boundaries from the max-ratio threshold
 4. If unimodal: boundaries from gap/particle_size ratio (k_x = 0.3)
 5. Analogously for vertical gaps with k_y = 0.05
 
 The translation is lossy: boundary precision (93.3%) degrades to GriTS
-(79.9%), a gap of 13.4 pp that is entirely due to the grid translator, not
-the underlying principle.
+(79.9%), a gap of 13.4 pp due to the grid translator, not the underlying
+principle.
 
 ---
 
@@ -312,51 +461,52 @@ the underlying principle.
 
 ### 4.1 Datasets
 
-We evaluate on six publicly available benchmarks spanning five document types:
+We evaluate on six publicly available benchmarks spanning five document
+types:
 
 | Dataset | Domain | Size | Annotation Level | Metric |
 |---------|--------|------|-----------------|--------|
 | PubTables-1M [1] | Scientific tables | 93,834 | Cell bounding boxes | GriTS, Boundary P |
-| FinTabNet.c [13] | Financial tables | 9,289 | Cell bounding boxes | GriTS, Boundary P |
-| CORD [14] | Digital receipts | 900 | Key-value entity links | Entity F1 |
-| SROIE [15] | Scanned receipts | 626 | 4 key fields (total, date, company, address) | Per-field recall |
-| FUNSD [16] | Scanned forms | 199 | Entity linking (question-answer) | Link F1 |
-| DocBank [17] | Scientific papers | 500,000 | 13 token-level layout labels | Bond purity, coverage |
+| FinTabNet.c [45] | Financial tables | 9,289 | Cell bounding boxes | GriTS, Boundary P |
+| CORD [46] | Digital receipts | 900 | Key-value entity links | Entity F1 |
+| SROIE [47] | Scanned receipts | 626 | 4 key fields | Per-field recall |
+| FUNSD [48] | Scanned forms | 199 | Entity linking | Link F1 |
+| DocBank [49] | Scientific papers | 500,000 | 13 token-level labels | Bond purity, coverage |
 
-Additionally, we report results on an industrial dataset of 46 HVAC technical
-catalogues (6,238 pages, 5 brands) using a domain-specific health metric.
+Additionally, we report results on an industrial dataset of 46 HVAC
+technical catalogues (6,238 pages, 5 brands) using a domain-specific
+health metric.
 
 All benchmarks use the same Morph configuration with **zero domain-specific
-parameters**.  The only difference is the presence or absence of brand-specific
-vocabulary in the type system (Layer 1); all benchmark evaluations use the
-generic type system without domain vocabulary.
+parameters**.  The only difference is the presence or absence of domain
+vocabulary in Layer 1; all benchmark evaluations use the generic type
+system without domain vocabulary.
 
 ### 4.2 Metrics
 
 **Boundary Precision / Recall / F1.**  For every gap between consecutive
-particles in a row, we classify it as boundary or non-boundary using
-`_natural_threshold` and compare with ground truth bounding boxes.  This is
-the most fundamental test of the perceptual principle.
+particles in a row, we classify it as boundary or non-boundary using the
+perceptual principle and compare with ground truth bounding boxes.  This
+is the most fundamental test of the principle itself.
 
-**GriTS (Grid Table Similarity)** [18].  The official PubTables-1M metric.
+**GriTS (Grid Table Similarity)** [50].  The official PubTables-1M metric.
 Uses 2D dynamic programming to align predicted and ground-truth cell grids.
-GriTS_Top measures structural topology; GriTS_Con measures content similarity.
+GriTS_Top measures structural topology; GriTS_Con measures content
+similarity.
 
-**Entity F1.**  For receipt and form benchmarks, we measure precision and
-recall of entity-level bonds: does the field correctly link a value to its
-label?
+**Entity F1.**  For receipt and form benchmarks, precision and recall of
+entity-level bonds.
 
-**Bond Purity.**  For DocBank, we measure whether bonded tokens share the
-same ground-truth layout label (homogeneity of field clusters).
+**Bond Purity.**  For DocBank, whether bonded tokens share the same
+ground-truth layout label.
 
-**NUMERIC Coverage.**  The fraction of NUMERIC-typed tokens that are bonded
-by the field (measures reach within the reachable space).
+**NUMERIC Coverage.**  The fraction of NUMERIC-typed tokens that are
+bonded by the field.
 
 ### 4.3 Implementation Details
 
 Morph is implemented in ~6,200 lines of Python across 24 modules.  The only
-required dependency is PyMuPDF for PDF text extraction; numpy is optional
-(used only for benchmark computations).
+required dependency is PyMuPDF for PDF text extraction; numpy is optional.
 
 All experiments were run on a ThinkPad P15 Gen 1 (Intel i7-10850H, 64 GB
 RAM) with **no GPU**.  Benchmark scripts use multiprocessing (4 cores) where
@@ -371,8 +521,8 @@ k_y = 0.05, r_min = 1.5.  All constants are invariant across experiments.
 
 ### 5.1 Table Structure Recognition
 
-**Direct principle test.**  We test `_natural_threshold` on every gap in
-every table, classifying each as boundary or non-boundary:
+**Direct principle test.**  We test the perceptual principle on every gap
+in every table, classifying each as boundary or non-boundary:
 
 | Dataset | Tables | Gaps | Precision | Recall | F1 |
 |---------|--------|------|-----------|--------|----|
@@ -399,27 +549,24 @@ The 13.4 pp gap between boundary precision (93.3%) and GriTS (79.9%) is
 entirely due to the grid translator, not the underlying principle.
 
 **Cross-domain stability.**  The 1.8 pp GriTS gap between PubTables-1M
-(scientific papers) and FinTabNet (financial filings) is notable: neural
-table detectors typically show 5-15 pp drops when applied cross-domain
-without fine-tuning [4].  Morph uses identical parameters on both domains.
+(scientific papers) and FinTabNet (financial filings) contrasts with
+5-15 pp drops reported for neural methods applied cross-domain without
+fine-tuning [4].
 
 ### 5.2 Receipt Key-Value Extraction
 
-**CORD** (900 Indonesian digital receipts, word-level annotations):
+**CORD** (900 digital receipts):
 
 | Level | Precision | Recall | F1 |
 |-------|-----------|--------|----|
 | Spatial (field) | 89.6% | 19.4% | 31.8% |
 | Bond (key match) | 89.5% | 19.2% | 31.6% |
 
-Translation cost: 0.2 pp (spatial to bond).  On receipts, the field output
-maps directly to F1 with negligible translation loss.
-
 Per-category: `total` 61.0% recall, `sub_total` 59.6%, `menu` 0.4%.
-The field bonds totals/subtotals to their labels effectively; menu items
-(product name to price) are invisible because W(TEXT, NUMERIC) = 0.
+The field bonds totals/subtotals effectively; menu items (product name
+to price) are invisible because W(TEXT, NUMERIC) = 0.
 
-**SROIE** (626 scanned receipts, ICDAR 2019, 4 key fields):
+**SROIE** (626 scanned receipts, ICDAR 2019):
 
 | Field | Recall |
 |-------|--------|
@@ -428,29 +575,22 @@ The field bonds totals/subtotals to their labels effectively; menu items
 | company | 0.0% |
 | address | 0.2% |
 
-Total recall 74.2% exceeds CORD's 61.0% (+13.2 pp), demonstrating that the
-field is robust to OCR coordinate noise.  Company and address are pure text
-fields — invisible to the current W matrix.
-
-Speed: 461 receipts/s (SROIE), 1,168 receipts/s (CORD).
+Total recall 74.2% exceeds CORD's 61.0% (+13.2 pp), demonstrating
+robustness to OCR coordinate noise.  Company and address are pure text
+fields — unreachable by the current interaction matrix.
 
 ### 5.3 Form Entity Linking
 
-**FUNSD** (199 scanned forms, question-answer entity linking):
+**FUNSD** (199 scanned forms):
 
 | Level | Precision | Recall | F1 |
 |-------|-----------|--------|----|
 | Spatial (any question) | 73.0% | 22.0% | 33.8% |
 | Bond (correct question) | 61.2% | 12.8% | 21.1% |
 
-Translation cost: 12.7 pp (spatial to bond) — higher than receipts because
-the field sometimes points to the wrong question entity.
-
-59% of ground-truth links are **structurally unreachable**: the answer entity
-contains no NUMERIC tokens, so the field cannot create a bond.  Only 22-24%
-of answer words are NUMERIC.  On reachable links only, recall rises to ~32%.
-
-Speed: 190 forms/s.
+59% of ground-truth links are **structurally unreachable**: the answer
+entity contains no NUMERIC tokens.  On reachable links only, recall rises
+to ~32%.
 
 ### 5.4 Document Layout Analysis
 
@@ -463,16 +603,13 @@ Speed: 190 forms/s.
 | date | 69 | 50.7% | 30.4% | 60.0% |
 | reference | 23,230 | 11.0% | 7.9% | 71.7% |
 | paragraph | 420,451 | 5.4% | 3.6% | 65.6% |
-| figure | 1,430 | 0.0% | 0.0% | 0.0% |
 
 Bond purity: **85.6%** — when the field bonds tokens, 85.6% share the
 same GT label.  NUMERIC coverage: **64.8%** — of reachable tokens, 64.8%
 are bonded.
 
-The W wall is fully exposed: 80.8% of tokens are TEXT (invisible to the
-field).  The field can reach at most 6.2% of the total token space.
-
-Speed: 72 pages/s (534 tokens/page average).
+The interaction matrix wall is fully exposed: 80.8% of tokens are TEXT,
+invisible to the field.  Maximum reach: 6.2% of total tokens.
 
 ### 5.5 Industrial Application
 
@@ -487,10 +624,8 @@ On 46 HVAC technical catalogues (6,238 pages, 5 brands):
 | Midea | 310 | 95.5% |
 | **Overall** | **6,238** | **95.2%** |
 
-Notably, Toshiba achieves 97.3% health with zero brand-specific regex
-patterns — all structure is inferred by spatial sensing alone.
-
-Processing speed: ~50 pages/s on CPU, completing 46 catalogues in 2 minutes.
+Toshiba achieves 97.3% with zero brand-specific patterns — all structure
+is inferred by spatial sensing alone.  Processing speed: ~50 pages/s on CPU.
 
 ### 5.6 Ablation Studies
 
@@ -502,18 +637,12 @@ Processing speed: ~50 pages/s on CPU, completing 46 catalogues in 2 minutes.
 | + Layer 1b (sense) | 63.4% | +27.7 pp |
 | + Layer 2 (field) | 95.2% | +31.8 pp |
 
-Layer 1b (spatial sensing) contributes +27.7 pp without touching any
-vocabulary — pure spatial inference.
-
 **z-axis contribution** (HVAC):
 
 | Configuration | Health |
 |--------------|--------|
 | 2D only (lambda_z = 0) | 91.3% |
 | 3D (lambda_z auto) | 95.2% |
-
-The third dimension contributes +3.9 pp by preventing cross-scale
-contamination.
 
 **Boundary constant k** (PubTables-1M, column exact match):
 
@@ -525,19 +654,15 @@ contamination.
 | 0.35 | 65.8% | 79.4% |
 | 0.40 | 64.1% | 78.6% |
 
-The broad plateau between 0.25 and 0.35 explains why a single constant
-works across domains.
+The broad plateau (0.25-0.35) explains cross-domain stability.
 
-**Max-ratio-jump vs fixed k:**
+**Adaptive vs fixed threshold:**
 
-| Dataset | Fixed (k=0.3) | Max-jump | Delta |
+| Dataset | Fixed (k=0.3) | Adaptive | Delta |
 |---------|--------------|----------|-------|
 | PubTables-1M | 79.7% | 79.9% | +0.2 pp |
 | FinTabNet | 77.6% | 78.1% | +0.5 pp |
 | Cross-domain gap | 2.1 pp | 1.8 pp | -0.3 pp |
-
-Max-jump further reduces the cross-domain gap by adapting to local gap
-statistics.
 
 ---
 
@@ -545,8 +670,7 @@ statistics.
 
 ### 6.1 Cross-Domain Stability
 
-The most distinctive property of Morph is cross-domain stability.  Using
-identical parameters across all six benchmarks:
+Using identical parameters across all six benchmarks:
 
 | Benchmark | Domain | Metric | Value |
 |-----------|--------|--------|-------|
@@ -557,15 +681,12 @@ identical parameters across all six benchmarks:
 | FUNSD | Scanned forms | Spatial P | 73.0% |
 | DocBank | Scientific papers | Bond purity | 85.6% |
 
-The precision figures (73-93%) demonstrate that the field is reliable
-where it can operate.  The variation reflects domain characteristics
-(financial tables have denser, more irregular layouts) rather than parameter
-mismatch.
+The precision range (73-93%) reflects domain characteristics (financial
+tables have denser, more irregular layouts) rather than parameter mismatch.
 
-### 6.2 The W Matrix Wall
+### 6.2 The Interaction Matrix Wall
 
-The interaction matrix W is the system's fundamental bottleneck.  Currently,
-the field only creates bonds involving NUMERIC particles:
+The interaction matrix W is the system's fundamental bottleneck:
 
 | Benchmark | %TEXT | %NUMERIC | Max reach | Actual bonds |
 |-----------|-------|----------|-----------|-------------|
@@ -574,39 +695,27 @@ the field only creates bonds involving NUMERIC particles:
 | CORD | ~40% | ~35% | ~35% | ~19% |
 | PubTables-1M | ~30% | ~50% | ~50% | ~40% |
 
-The pattern is clear: as TEXT density increases, the field's reach
-decreases proportionally.  On table-dominated benchmarks (PubTables-1M),
-most particles are NUMERIC and the field operates near capacity.  On
-text-dominated benchmarks (DocBank), the field is structurally blind to
-80% of the content.
-
-This is not a parametric limitation — no adjustment of alpha, sigma, or
-the existing W values can fix it.  Extending W to include TEXT-TEXT bonds
-would require a new signal to distinguish meaningful bonds (e.g., question
-to answer in a form) from noise (adjacent words in a paragraph).
+As TEXT density increases, the field's reach decreases proportionally.
+This is not a parametric limitation — no adjustment of existing values
+can fix it.  Extending W to TEXT-TEXT bonds would require a new signal to
+distinguish meaningful bonds from noise.
 
 ### 6.3 Error Analysis
 
-**Table benchmarks.**  89% of boundary errors are false negatives (missed
-boundaries).  The principle requires bimodal gap distributions; tables with
-uniform column spacing produce unimodal gaps where no natural break exists.
-The remaining 11% FP occur primarily at hyphenated words and mathematical
-expressions with internal spacing.
+**Table benchmarks.**  89% of boundary errors are false negatives.  The
+principle requires bimodal gap distributions; tables with uniform column
+spacing produce unimodal gaps where no natural break exists.  The
+remaining 11% FP occur at hyphenated words and mathematical expressions.
 
-**Receipt benchmarks.**  The SROIE-CORD comparison is instructive:
-SROIE total recall (74.2%) exceeds CORD total recall (61.0%) despite noisier
-coordinates.  This suggests the bottleneck is not spatial precision but
-semantic coverage — CORD annotates more complex key-value relationships
-(menu items, multiple sub-totals) that require W(TEXT, NUMERIC) > 0.
+**Receipt benchmarks.**  SROIE total recall (74.2%) exceeds CORD (61.0%)
+despite noisier coordinates — the bottleneck is semantic coverage, not
+spatial precision.
 
-**Form benchmarks.**  On FUNSD, 59% of ground-truth links are structurally
-unreachable.  Of the reachable 41%, the field achieves ~32% recall —
-demonstrating that the spatial principle works on forms when the particle
-types are visible.
+**Form benchmarks.**  59% of ground-truth links are structurally
+unreachable.  Of the reachable 41%, the field achieves ~32% recall.
 
-**DocBank.**  Bond purity (85.6%) is high: when the field bonds tokens, it
-correctly groups same-label tokens.  But coverage is capped at 6.2% by the W
-matrix.  The field is precise but blind.
+**DocBank.**  Bond purity (85.6%) is high; coverage is capped at 6.2%
+by the interaction matrix.  The field is precise but blind.
 
 ### 6.4 Speed Comparison
 
@@ -616,175 +725,283 @@ matrix.  The field is precise but blind.
 | LayoutLMv3 [3] | ~3 pages/s | A100 GPU | 11M images |
 | Morph | **~50 pages/s** | i7 CPU | 0 images |
 
-Morph is approximately 50x faster than neural methods while requiring no
-GPU and no training data.  The processing bottleneck is PDF text extraction
-(PyMuPDF), not Morph computation.
-
 ---
 
 ## 7. Discussion
 
-### 7.1 The Third Way
+### 7.1 Position in the Field
 
-Morph occupies a position between two established paradigms:
+Morph occupies a space between two established paradigms:
 
-1. **Rule-based systems** use hand-crafted heuristics that are interpretable
-   but brittle and domain-specific.
+**Rule-based systems** [5, 6, 7, 8, 9, 10, 21, 22] use hand-crafted
+heuristics that are interpretable but brittle and domain-specific.
 
-2. **Data-driven systems** learn from examples, achieving high accuracy but
-   at the cost of training data, computational resources, and
-   interpretability.
+**Data-driven systems** [1, 2, 3, 23, 24, 25, 26, 27] learn from labelled
+examples, achieving high accuracy at the cost of training data, compute,
+and interpretability.
 
-Morph proposes a third way: **self-organising inference from spatial
-principles**.  The perceptual principle is not a rule (it adapts to each
-document) nor a learned model (it requires no training data).  It is a
-statistical property of bimodal distributions — a mathematical fact that
-manifests consistently in document layout.
+Morph uses **no training data** (like classical methods) but derives its
+parameters from a **statistical principle** that adapts to each document
+(unlike fixed heuristics).  The perceptual principle is not a hand-crafted
+rule — it adapts to each document's gap distribution.  Nor is it a learned
+model — it requires no training data.  It is a mathematical property of
+bimodal distributions that manifests consistently in document layout.
 
-The biological metaphor is deliberate but not cosmetic.  Each computational
-operation maps to a specific biological process with a shared structural
-property: **local rules producing global order without central coordination**.
-Lexical typing maps to gene expression, spatial re-typing to cellular
-differentiation, field-based binding to morphogenetic attraction.  The
-system develops structure the way an embryo develops tissues — from the
-inside out, guided by local gradients.
+The biological framing (gene expression, differentiation, morphogenetic
+fields) draws on Gurwitsch [16], Turing [17], and Doursat et al. [18],
+applied to a new domain.  We emphasise that this is an application of
+existing biological principles to a new problem, not a claim of biological
+novelty.
 
-### 7.2 Limitations
+### 7.2 What is Novel, What is Borrowed
+
+We state explicitly what components of Morph have prior art and what we
+consider novel:
+
+**Borrowed (with adaptation):**
+- Rule-based lexical typing: standard NER practice [37, 38], adapted to
+  document particles
+- Header inference from spatial position: extends Abraham and Erwig [42]
+  from spreadsheet regions to individual tokens
+- Gravitational interaction form Phi = W/d^alpha: mathematical form from
+  spatial interaction models [11, 12], adapted with typed interaction matrix
+- Bimodal thresholding: belongs to the family of Otsu [13], Jenks [14],
+  and the gap procedure [30], with a different mechanism
+
+**Novel (to our knowledge):**
+- Application of morphogenetic field principles to document structure
+  recognition (no prior art found)
+- Typed interaction matrix W with continuous spatial decay for document
+  particles (prior graph-based methods [23, 24, 25] learn interactions
+  implicitly; our W is explicit and handcrafted)
+- The specific thresholding algorithm: max ratio of consecutive sorted gaps
+  as boundary detector (the ratio operation appears in physics [31, 32] but
+  applied to unsorted data for distributional analysis, not threshold
+  finding)
+- The three-layer architecture (intrinsic typing → spatial promotion →
+  field binding) as a unified system
+- Cross-domain validation at this scale (102K tables, 13.8M gaps, three
+  domains) for an unsupervised table recognition method
+
+### 7.3 Limitations
 
 **Accuracy gap.**  Morph's 79.9% GriTS on PubTables-1M is below
 state-of-the-art neural methods (95.7%).  The gap is primarily structural:
 Morph assumes a regular grid and does not model spanning cells, multi-level
-headers, or complex layouts that neural methods capture through bounding box
-regression.
+headers, or complex layouts.
 
 **The W wall.**  The interaction matrix restricts bonds to pairs involving
 NUMERIC particles.  On text-heavy documents (DocBank: 80.8% TEXT), this
-leaves the majority of content unreachable.  Extending W to TEXT-TEXT bonds
-is the key architectural challenge, requiring a signal to distinguish
-meaningful bonds from noise.
+leaves the majority of content unreachable.
 
 **Equispaced columns.**  The perceptual principle requires bimodal gap
 distributions.  Tables with perfectly uniform column spacing produce
-unimodal gaps where no natural break exists.  The system falls back to a
-ratio-based heuristic in these cases.
+unimodal gaps where no natural break exists.
 
 **No multi-line cells.**  Cells that wrap to multiple lines are treated as
-separate rows, inflating the row count in grid translation.
+separate rows.
 
-### 7.3 Future Work
+### 7.4 Future Work
 
-Three directions emerge from the experimental analysis:
-
-**Extending the type system.**  Adding regex-based types (DATE, PRICE,
-REFERENCE) would reclassify tokens currently typed as TEXT, expanding the
-field's reach without changing the equation.  This is a Layer 1 extension
-requiring approximately 20 lines of code.
+**Extending the type system.**  Adding regex types (DATE, PRICE,
+REFERENCE) would reclassify TEXT tokens, expanding the field's reach
+without changing the equation.
 
 **Unsupervised W estimation.**  Computing W from spatial co-occurrence
-statistics (pointwise mutual information of type pairs within spatial
-proximity) would allow W to emerge from the data without annotated examples,
-preserving the zero-training property.
+statistics (pointwise mutual information of type pairs within proximity)
+would allow W to emerge from data without annotations.
 
-**Parametric W estimation.**  Fitting the ~20 parameters of W from annotated
-documents would be the most powerful extension — analogous to measuring
-gravitational constants from experimental data.  This trades the zero-training
-claim for a 20-parameter fit that remains interpretable and vastly simpler
-than neural alternatives (20 vs. 175 billion parameters).
-
-### 7.4 Broader Implications
-
-The success of a single perceptual principle across six benchmarks and five
-document types suggests that document structure recognition may require
-fewer parameters than currently assumed.  The 93.3% boundary precision on
-13.8 million gaps is achieved with exactly one statistical test and one
-threshold (r_min = 1.5).
-
-This raises a broader question for document AI: how much of the performance
-gap between heuristic and neural methods is due to superior learned
-representations, and how much is due to the ability to model complex
-structures (spanning cells, nested headers) that heuristic methods typically
-ignore?  Our ablation studies suggest the answer is nuanced: Morph achieves
-79.9% GriTS on *regular* tables — the gap to 95.7% is largely on the
-irregular cases that require explicit structural modelling.
+**Parametric W estimation.**  Fitting W's ~20 parameters from annotated
+data trades the zero-training property for a 20-parameter fit that remains
+interpretable and vastly simpler than neural alternatives.
 
 ---
 
 ## 8. Conclusion
 
-We have presented Morph, a morphogenetic approach to document structure
-recognition based on a single perceptual principle: cell boundaries emerge
-from the maximum discontinuity in spatial gap distributions.  Validated on
-13.8 million gaps across 102K tables with 93.3% precision, the principle
-operates without training data, GPU inference, or domain-specific parameters.
+We have presented Morph, a system for document structure recognition based
+on a perceptual boundary detection principle and a field equation adapted
+from spatial interaction models.  The principle — finding the maximum ratio
+of consecutive sorted gaps — belongs to the family of bimodal thresholding
+methods but uses a mechanism distinct from Otsu, Jenks, or dip test
+approaches.  The field equation adapts the gravitational interaction form
+to typed document particles through an explicit interaction matrix.
 
-Across six benchmarks spanning tables, receipts, forms, and document layout,
-Morph demonstrates consistent performance (73-93% precision) and remarkable
-cross-domain stability (1.8 pp GriTS gap between scientific and financial
-domains).  The system's limitation is equally clear: the interaction matrix W
-restricts the field to NUMERIC particles, leaving 80.8% of text-heavy
-documents unreachable.
+Validated on 13.8 million gaps across 102K tables with 93.3% boundary
+precision, the principle operates without training data, GPU inference, or
+domain-specific parameters.  Across six benchmarks spanning tables,
+receipts, forms, and document layout, Morph demonstrates 73-93% precision
+and 1.8 pp cross-domain stability on table structure recognition.
 
-This limitation is not a failure — it is a precisely characterised boundary
-of the current formulation.  The field's high precision (85.6% bond purity on
-DocBank) shows that the spatial principle is correct; its low coverage shows
-where to extend next.  We believe this transparency — knowing exactly what
-works, what doesn't, and why — is itself a contribution to a field
-increasingly dominated by opaque, high-parameter models.
+The system's limitation is equally clear: the interaction matrix restricts
+bonds to NUMERIC particles, leaving text-heavy documents largely
+unreachable.  The field's high precision (85.6% bond purity on DocBank)
+shows that the spatial principle is correct; its low coverage shows where
+to extend next.
+
+We believe that this transparency — knowing exactly what works, what
+doesn't, what is borrowed, and what is new — is itself a contribution to
+a field increasingly dominated by high-parameter models whose failure
+modes are difficult to characterise.
 
 ---
 
 ## References
 
 [1] Smock, B., Pesala, R., & Abraham, R. (2022). PubTables-1M: Towards
-comprehensive table extraction from unstructured documents. CVPR 2022.
+comprehensive table extraction from unstructured documents. *CVPR 2022*.
 
 [2] Nassar, A., et al. (2022). TableFormer: Table Structure Understanding
-with Transformers. CVPR 2022.
+with Transformers. *CVPR 2022*.
 
-[3] Huang, Y., et al. (2022). LayoutLMv3: Pre-training for Document AI with
-Unified Text and Image Masking. ACM MM 2022.
+[3] Huang, Y., et al. (2022). LayoutLMv3: Pre-training for Document AI
+with Unified Text and Image Masking. *ACM MM 2022*.
 
-[4] Zhong, X., Tang, J., & Yepes, A.J. (2020). Image-based table recognition:
-Data, model, and evaluation. ECCV 2020.
+[4] Zhong, X., Tang, J., & Yepes, A.J. (2020). Image-based table
+recognition: Data, model, and evaluation. *ECCV 2020*.
 
-[5] Kieninger, T. & Dengel, A. (2001). Applying the T-Recs table recognition
-system to the business letter domain. ICDAR 2001.
+[5] Kieninger, T. & Dengel, A. (1998). The T-Recs table recognition and
+analysis system. *Document Analysis Systems (DAS) 1998*.
 
-[6] Shigarov, A., Mikhailov, A., & Altaev, A. (2016). Configurable table
-structure recognition in untagged PDF documents. DocEng 2016.
+[6] O'Gorman, L. (1993). The document spectrum for page layout analysis.
+*IEEE TPAMI*, 15(11), 1162-1173.
 
-[7] Qasim, S.R., Mahmood, H., & Shafait, F. (2019). Rethinking table
-recognition using graph neural networks. ICDAR 2019.
+[7] Kise, K., Sato, A., & Iwata, M. (1998). Segmentation of page images
+using the area Voronoi diagram. *Computer Vision and Image Understanding*,
+70(3), 370-382.
 
-[8] Tang, Z., et al. (2023). Unifying Vision, Text, and Layout for Universal
-Document Processing. CVPR 2023.
+[8] Aristarán, M., et al. (2012). Tabula: A tool for liberating data tables
+locked inside PDF files. Open source, github.com/tabulapdf.
 
-[9] Turing, A.M. (1952). The Chemical Basis of Morphogenesis. Phil. Trans.
-R. Soc. B, 237(641), 37-72.
+[9] Mehta, V., et al. (2019). Camelot: PDF table extraction for humans.
+Open source, github.com/camelot-dev/camelot.
 
-[10] Wolfram, S. (2002). A New Kind of Science. Wolfram Media.
+[10] Singer-Vine, J. (2015). pdfplumber: Plumb a PDF for detailed
+information about each text character, rectangle, and line.  Open source,
+github.com/jsvine/pdfplumber.
 
-[11] Bonabeau, E., Dorigo, M., & Theraulaz, G. (1999). Swarm Intelligence:
-From Natural to Artificial Systems. Oxford University Press.
+[11] Stewart, J.Q. (1941). An inverse distance variation for certain social
+influences. *Science*, 93(2404), 89-90.
 
-[12] Gierer, A. & Meinhardt, H. (1972). A Theory of Biological Pattern
-Formation. Kybernetik, 12, 30-39.
+[12] Shepard, D. (1968). A two-dimensional interpolation function for
+irregularly-spaced data. *Proc. 23rd ACM National Conference*, 517-524.
 
-[13] Zheng, X., et al. (2021). Global Table Extractor (GTE): A Framework for
-Joint Table Identification and Cell Structure Recognition Using Visual
-Context. WACV 2021.
+[13] Otsu, N. (1979). A threshold selection method from gray-level
+histograms. *IEEE Trans. Syst. Man Cybern.*, 9(1), 62-66.
 
-[14] Park, S., et al. (2019). CORD: A Consolidated Receipt Dataset for
-Post-OCR Parsing. Document Intelligence Workshop, NeurIPS 2019.
+[14] Jenks, G.F. (1967). The data model concept in statistical mapping.
+*International Yearbook of Cartography*, 7, 186-190.
 
-[15] Huang, Z., et al. (2019). ICDAR2019 Competition on Scanned Receipt OCR
-and Information Extraction. ICDAR 2019.
+[15] Fisher, W.D. (1958). On grouping for maximum homogeneity. *Journal of
+the American Statistical Association*, 53(284), 789-798.
 
-[16] Jaume, G., Ekenel, H.K., & Thiran, J.P. (2019). FUNSD: A Dataset for
-Form Understanding in Noisy Scanned Documents. ICDAR-OST 2019.
+[16] Gurwitsch, A.G. (1922). Über den Begriff des embryonalen Feldes.
+*Archiv für Entwicklungsmechanik der Organismen*, 51, 383-415.
 
-[17] Li, M., et al. (2020). DocBank: A Benchmark Dataset for Document Layout
-Analysis. COLING 2020.
+[17] Turing, A.M. (1952). The chemical basis of morphogenesis. *Phil.
+Trans. R. Soc. B*, 237(641), 37-72.
 
-[18] Smock, B., Pesala, R., & Abraham, R. (2022). GriTS: Grid Table
-Similarity Metric for Table Structure Recognition. arXiv:2203.12555.
+[18] Doursat, R., Sayama, H., & Michel, O. (2013). A review of
+morphogenetic engineering. *Natural Computing*, 12, 517-535.
+
+[19] Zanibbi, R., Blostein, D., & Cordy, J.R. (2004). A survey of table
+recognition. *IJDAR*, 7, 1-16.
+
+[20] Embley, D.W., Hurst, M., Lopresti, D., & Nagy, G. (2006).
+Table-processing paradigms: a research survey. *IJDAR*, 8, 66-79.
+
+[21] Shafait, F. & Smith, R. (2010). Table detection in heterogeneous
+documents. *Proc. DAS 2010*, 65-72.
+
+[22] Itonori, K. (1993). Table structure recognition based on textblock
+arrangement and ruled line position. *Proc. ICDAR 1993*.
+
+[23] Riba, P., Dutta, A., Goldmann, L., Fornés, A., Ramos, O., & Lladós,
+J. (2019). Table detection in invoice documents by graph neural networks.
+*ICDAR 2019*.
+
+[24] Qasim, S.R., Mahmood, H., & Shafait, F. (2019). Rethinking table
+recognition using graph neural networks. *ICDAR 2019*.
+
+[25] Li, Y., Huang, Z., Yan, J., Zhou, Y., Ye, F., & Liu, X. (2021).
+GFTE: Graph-based financial table extraction. *ICPR 2021*.
+
+[26] Chen, F., et al. (2025). Graph-based document structure analysis.
+*ICLR 2025*.
+
+[27] Tang, Z., et al. (2023). Unifying vision, text, and layout for
+universal document processing. *CVPR 2023*.
+
+[28] Fisher, W.D. (1958). On grouping for maximum homogeneity. *J. Am.
+Stat. Assoc.*, 53(284), 789-798.
+
+[29] Hartigan, J.A. & Hartigan, P.M. (1985). The dip test of unimodality.
+*Ann. Statist.*, 13(1), 70-84.
+
+[30] Vrbik, I., Stephens, D.A., Roger, M., & Bhatt, D.M. (2015). The gap
+procedure: for the identification of phylogenetic clusters in HIV-1
+sequence data. *BMC Bioinformatics*, 16, 355.
+
+[31] Oganesyan, V. & Huse, D.A. (2007). Localization of interacting
+fermions at high temperature. *Phys. Rev. B*, 75, 155111.
+
+[32] Atas, Y.Y., Bogomolny, E., Giraud, O., & Roux, G. (2013).
+Distribution of the ratio of consecutive level spacings in random matrix
+ensembles. *Phys. Rev. Lett.*, 110, 084101.
+
+[33] Pyke, R. (1965). Spacings. *J. R. Stat. Soc. B*, 27(3), 395-449.
+
+[34] Greenwood, M. (1946). The statistical study of infectious diseases.
+*J. R. Stat. Soc. A*, 109(2), 85-110.
+
+[35] Zipf, G.K. (1946). The P1 P2/D hypothesis: on the intercity movement
+of persons. *Am. Sociol. Rev.*, 11(6), 677-686.
+
+[36] Khatib, O. (1986). Real-time obstacle avoidance for manipulators and
+mobile robots. *Int. J. Robot. Res.*, 5(1), 90-98.
+
+[37] Grishman, R. & Sundheim, B. (1996). Message Understanding
+Conference-6: A brief history. *Proc. COLING 1996*.
+
+[38] Cunningham, H., Maynard, D., Bontcheva, K., & Tablan, V. (2002).
+GATE: An architecture for development of robust HLT applications. *Proc.
+ACL 2002*.
+
+[39] Hu, J., Kashi, R.S., Lopresti, D.P., & Wilfong, G.T. (2001). Table
+structure recognition and its evaluation. *Proc. SPIE Document Recognition
+and Retrieval VIII*.
+
+[40] Fang, J., Mitra, P., Tang, Z., & Giles, C.L. (2012). Table header
+detection and classification. *Proc. AAAI 2012*.
+
+[41] Koci, E., Thiele, M., Romero, O., & Lehner, W. (2018). Cell
+classification for layout recognition in spreadsheets. *ADBIS 2018*.
+
+[42] Abraham, R. & Erwig, M. (2004). Header and unit inference for
+spreadsheets through spatial analyses. *Proc. IEEE Symposium on Visual
+Languages - Human Centric Computing*.
+
+[43] Pinto, D., McCallum, A., Wei, X., & Croft, W.B. (2003). Table
+extraction using conditional random fields. *Proc. SIGIR 2003*.
+
+[44] Zhang, D., Suhara, Y., Li, J., Hulsebos, M., Demiralp, C., & Tan,
+W.-C. (2020). Sato: Contextual semantic type detection in tables. *Proc.
+VLDB*, 13(11), 1835-1848.
+
+[45] Zheng, X., et al. (2021). Global table extractor (GTE): A framework
+for joint table identification and cell structure recognition. *WACV 2021*.
+
+[46] Park, S., et al. (2019). CORD: A consolidated receipt dataset for
+post-OCR parsing. *Document Intelligence Workshop, NeurIPS 2019*.
+
+[47] Huang, Z., et al. (2019). ICDAR2019 competition on scanned receipt
+OCR and information extraction. *ICDAR 2019*.
+
+[48] Jaume, G., Ekenel, H.K., & Thiran, J.P. (2019). FUNSD: A dataset for
+form understanding in noisy scanned documents. *ICDAR-OST 2019*.
+
+[49] Li, M., et al. (2020). DocBank: A benchmark dataset for document
+layout analysis. *COLING 2020*.
+
+[50] Smock, B., Pesala, R., & Abraham, R. (2022). GriTS: Grid table
+similarity metric for table structure recognition. *arXiv:2203.12555*.
