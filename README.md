@@ -28,6 +28,8 @@ Graph L0 nodes, SQL rows, and RAG chunks in a single pass.
 | CORD Precision (campo puro) | **89.6%** | 800 receipts, translation cost 0.1pp |
 | **FUNSD Bond F1** (forms) | **21.1%** | 149 forms, 59% links unreachable (no NUMERIC) |
 | **SROIE Total Recall** (scanned receipts) | **74.2%** | 626 receipts, noisy OCR coordinates |
+| **DocBank Bond Purity** (scientific papers) | **85.6%** | 1,000 pages, 80.8% TEXT (W wall) |
+| DocBank NUMERIC Coverage | **64.8%** | 33K NUMERIC tokens bonded out of reachable |
 | HVAC catalogue health | **95.2%** | 6,238 pages, 5 brands |
 | Pages processed | **6,238** | 46 catalogues |
 | Processing speed | **560 tab/s** | i7-10850H, no GPU |
@@ -182,6 +184,49 @@ OCR noise.  Scanned coordinates do not degrade the spatial principle.
 **Comparison with CORD**: Same receipt domain, different input quality:
 - SROIE total recall (74.2%) > CORD total recall (61.0%) → +13.2 pp
 - Both hit the same structural wall: TEXT fields invisible to the field
+
+### DocBank Benchmark (Document Layout Analysis)
+
+DocBank contains 500K scientific document pages with 13 token-level layout
+labels (abstract, author, caption, date, equation, figure, footer, header,
+list, paragraph, reference, section, table, title).  This is the largest
+and most diverse benchmark in the cascade — and the one that exposes the
+**W matrix wall** most clearly.
+
+**Metric**: Bond purity (do bonded tokens share GT label?) and NUMERIC coverage.
+
+```
+Label        Tokens   NUMERIC    %NUM   Bonded   %Bond   NUMERIC bonded
+──────────  ────────  ────────  ──────  ───────  ──────  ──────────────
+table          3,762     1,706   45.3%      638   17.0%         37.4%
+date              69        35   50.7%       21   30.4%         60.0%
+equation      33,978     3,594   10.6%    2,361    6.9%         65.7%
+caption       16,366       888    5.4%      566    3.5%         63.7%
+paragraph    420,451    22,804    5.4%   14,958    3.6%         65.6%
+reference     23,230     2,561   11.0%    1,835    7.9%         71.7%
+figure         1,430         0    0.0%        0    0.0%          0.0%
+```
+
+**Key results**:
+- **Bond purity: 85.6%** — when the field bonds, 85.6% of tokens share GT label
+- **NUMERIC coverage: 64.8%** — of all NUMERIC tokens, 64.8% are bonded
+- **The W wall**: 80.8% of tokens are TEXT (invisible to the field).  The field
+  can reach at most 6.2% of tokens.
+
+**Per-type analysis**:
+- `table`: highest NUMERIC density (45.3%), but only 37.4% bonded — tables
+  need column headers (MODEL/SECTION) that scientific papers rarely have
+- `equation`: 10.6% NUMERIC, 65.7% bonded — equations contain numbers and
+  symbols that the field captures well
+- `paragraph`: 5.4% NUMERIC but 22K tokens — most NUMERIC tokens live inside
+  paragraphs (inline numbers, citations, percentages)
+- `figure`: 0% NUMERIC — completely invisible
+
+**The dragon**: DocBank proves that extending W to TEXT types would unlock
+80.8% of currently invisible tokens.  The field's precision is high (85.6%
+purity) but its reach is capped at 6.2% by the W matrix.
+
+**Speed**: 72 pages/s on CPU (534 tokens/page average).
 
 ---
 
@@ -365,6 +410,12 @@ python -m morph.bench.sroie
 # SROIE with verbose output
 python -m morph.bench.sroie --n 100 --verbose
 
+# DocBank document layout (1000 pages, default)
+python -m morph.bench.docbank --n 1000
+
+# DocBank with verbose output
+python -m morph.bench.docbank --n 100 --verbose
+
 # Regression tests (65 tests)
 pytest tests/ -v
 ```
@@ -410,6 +461,7 @@ morph/
 │   ├── cord.py           # CORD receipt benchmark (F1, 4 levels)
 │   ├── funsd.py          # FUNSD form entity linking (F1, 2 levels)
 │   ├── sroie.py          # SROIE scanned receipt benchmark (noise tolerance)
+│   ├── docbank.py        # DocBank document layout (W wall analysis)
 │   └── adaptive_k.py     # Max-ratio-jump experiment
 │
 └── docs/                 # Extended documentation
@@ -491,6 +543,7 @@ morph/
 - CORD dataset (receipt JSON annotations)
 - FUNSD dataset (form entity linking annotations)
 - SROIE dataset (scanned receipt OCR boxes + key JSON)
+- DocBank dataset (500K document pages, token-level layout labels)
 
 **Optional (pipeline integration):**
 - `knowledge` module (header normalisation, active learning)
@@ -543,6 +596,8 @@ specifiche per dominio**.
 | CORD Precision (campo puro) | **89.6%** | 800 ricevute, costo traduzione 0.1pp |
 | **FUNSD Bond F1** (form) | **21.1%** | 149 form, 59% link irraggiungibili (no NUMERIC) |
 | **SROIE Total Recall** (ricevute scansionate) | **74.2%** | 626 ricevute, OCR rumoroso |
+| **DocBank Bond Purity** (paper scientifici) | **85.6%** | 1.000 pagine, 80.8% TEXT (muro W) |
+| DocBank NUMERIC Coverage | **64.8%** | 33K token NUMERIC bonded su raggiungibili |
 | Health cataloghi HVAC | **95.2%** | 6.238 pagine, 5 brand |
 | Velocita' | **560 tab/s** | i7-10850H, nessuna GPU |
 
