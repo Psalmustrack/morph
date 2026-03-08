@@ -129,6 +129,109 @@ def _natural_threshold(gaps: list[float]) -> float:
     return (sorted_gaps[best_idx] + sorted_gaps[best_idx + 1]) / 2
 
 
+# ─── NN Direction (Docstrum-inspired) ─────────────────────────────
+
+def _nn_column_evidence(row_particles: list[dict],
+                        all_particles: list[dict]) -> list[bool]:
+    """Nearest-neighbor direction evidence for column boundaries.
+
+    Docstrum principle (O'Gorman 1993): if a word's nearest neighbor
+    across all particles is NOT the next word on its row, there is
+    likely a column boundary between them. The NN "escapes" vertically
+    because the next column is farther than the next row.
+
+    Complements _natural_threshold: gap magnitude detects bimodal
+    distributions; NN direction detects boundaries even in equispaced
+    tables where gaps are uniform (no bimodality).
+
+    Args:
+        row_particles: Particles on one row, sorted by x0.
+        all_particles: All particles on the page.
+
+    Returns:
+        List of bool (one per gap). True = NN evidence for boundary.
+    """
+    if len(row_particles) < 2:
+        return []
+
+    sorted_row = sorted(row_particles, key=lambda p: p['x0'])
+    row_ids = set(id(p) for p in sorted_row)
+
+    evidence = []
+    for i in range(len(sorted_row) - 1):
+        p = sorted_row[i]
+        next_p = sorted_row[i + 1]
+
+        # Distance to next word on this row
+        dx = p['x'] - next_p['x']
+        dy = p['y'] - next_p['y']
+        d_next = (dx * dx + dy * dy) ** 0.5
+
+        # Is there a particle in a DIFFERENT row that is:
+        # (a) significantly closer than next_p (< 70% of d_next)
+        # (b) more vertical than horizontal (dy > dx)
+        # This filters diagonal neighbors and marginal cases.
+        has_vertical_nn = False
+        for q in all_particles:
+            if id(q) in row_ids:
+                continue
+            dx2 = abs(p['x'] - q['x'])
+            dy2 = abs(p['y'] - q['y'])
+            d2 = (dx2 * dx2 + dy2 * dy2) ** 0.5
+            if d2 < d_next * 0.5 and dy2 > dx2:
+                has_vertical_nn = True
+                break
+
+        evidence.append(has_vertical_nn)
+
+    return evidence
+
+
+# ─── Crystallization (vertical alignment) ────────────────────────
+
+def _crystallize_columns(all_particles: list[dict]) -> list[float]:
+    """Find column boundaries from vertical alignment (crystallization).
+
+    When horizontal gaps within a row are equispaced (no bimodality),
+    the vertical alignment of X-centers across ALL rows reveals columns:
+    particles in the same column cluster at similar X positions.
+
+    Collects X-centers from all particles, sorts them, computes gaps
+    between consecutive centers. Intra-column gaps are tiny (vertical
+    alignment jitter), inter-column gaps are large → bimodal.
+    Applies _natural_threshold to find the column boundaries.
+
+    Args:
+        all_particles: All particles in the table.
+
+    Returns:
+        Sorted list of X positions where column boundaries fall.
+        Empty if no columnar pattern found.
+    """
+    if len(all_particles) < 4:
+        return []
+
+    x_centers = sorted(p['x'] for p in all_particles)
+
+    # Gap tra centri X consecutivi (ignora sovrapposti)
+    gaps = []
+    positions = []
+    for i in range(len(x_centers) - 1):
+        g = x_centers[i + 1] - x_centers[i]
+        if g > 0.5:  # ignora duplicati
+            gaps.append(g)
+            positions.append((x_centers[i] + x_centers[i + 1]) / 2)
+
+    if len(gaps) < 3:
+        return []
+
+    threshold = _natural_threshold(gaps)
+    if threshold > max(gaps):
+        return []  # nessuna bimodalita' nemmeno qui
+
+    return [pos for g, pos in zip(gaps, positions) if g > threshold]
+
+
 def _estimate_row_spacing_all(particles: list[dict]) -> float:
     """Estimate row spacing from ALL particles (not just NUMERIC).
 

@@ -26,7 +26,10 @@ import random
 import time
 from multiprocessing import Pool
 
-from morph.core.sense import _natural_threshold, _group_into_rows
+from morph.core.sense import (
+    _natural_threshold, _group_into_rows, _nn_column_evidence,
+    _crystallize_columns,
+)
 from morph.bench.grid import _group_into_columns
 from morph.bench.pubtables import (
     find_pairs as find_pairs_pubtables,
@@ -110,7 +113,8 @@ def _assign_gt_row(y: float, gt_rows: list[dict]) -> int:
 # ---------------------------------------------------------------------------
 
 def evaluate_x_boundaries(particles: list[dict],
-                          gt: dict) -> dict | None:
+                          gt: dict,
+                          method: str = 'gap') -> dict | None:
     """Testa il principio sui confini colonna (asse X).
 
     Per ogni riga di particelle:
@@ -119,6 +123,11 @@ def evaluate_x_boundaries(particles: list[dict],
     3. Per ogni gap: principio dice confine (gap > soglia) o no?
     4. GT dice confine (particelle in colonne diverse) o no?
     5. Conta TP, FP, TN, FN
+
+    Metodi:
+    - 'gap': solo gap bimodality (_natural_threshold)
+    - 'gap+nn': gap + NN-direction rescue (Docstrum)
+    - 'gap+crystal': gap + cristallizzazione verticale (fallback globale)
     """
     gt_cols = gt['columns']
     if len(gt_cols) < 2:
@@ -127,6 +136,14 @@ def evaluate_x_boundaries(particles: list[dict],
     rows = _group_into_rows(particles)
     if not rows:
         return None
+
+    use_nn = method == 'gap+nn'
+    use_crystal = method == 'gap+crystal'
+
+    # Cristallizzazione: calcola una volta per tutta la tabella
+    crystal_bounds = None
+    if use_crystal:
+        crystal_bounds = _crystallize_columns(particles)
 
     tp = fp = tn = fn = 0
     total_gaps = 0
@@ -150,7 +167,8 @@ def evaluate_x_boundaries(particles: list[dict],
         if len(pos_gaps) >= 3:
             threshold = _natural_threshold(pos_gaps)
             # Se nessun break bimodale, il principio dice "nessun confine"
-            if threshold > max(pos_gaps):
+            no_bimodality = threshold > max(pos_gaps)
+            if no_bimodality:
                 threshold = float('inf')
         elif len(pos_gaps) >= 1:
             # Troppo pochi gap: il principio non puo' decidere
@@ -159,8 +177,17 @@ def evaluate_x_boundaries(particles: list[dict],
         else:
             continue
 
+        # NN evidence (solo se richiesto e soglia non ha trovato break)
+        nn_ev = None
+        if use_nn and no_bimodality and len(ps) >= 2:
+            nn_ev = _nn_column_evidence(ps, particles)
+            # Lateral inhibition: NN rescue solo se almeno meta'
+            # dei gap mostra evidenza (segnale isolato = rumore)
+            if nn_ev and sum(nn_ev) < len(nn_ev) * 0.5:
+                nn_ev = None
+
         # Classifica ogni gap
-        for g, p_left, p_right in gap_meta:
+        for idx, (g, p_left, p_right) in enumerate(gap_meta):
             total_gaps += 1
 
             # GT: particelle in colonne diverse?
@@ -168,8 +195,22 @@ def evaluate_x_boundaries(particles: list[dict],
             col_right = _assign_gt_column(p_right['x'], gt_cols)
             gt_boundary = col_left != col_right
 
-            # Principio: gap sopra soglia?
+            # Principio primario: gap sopra soglia?
             pred_boundary = g > threshold
+
+            # NN rescue: quando gap-threshold non trova break,
+            # NN-direction puo' salvare i FN (tabelle equispaziate)
+            if not pred_boundary and nn_ev is not None and g > 1.0:
+                if idx < len(nn_ev) and nn_ev[idx]:
+                    pred_boundary = True
+
+            # Crystal rescue: quando gap-threshold non trova break,
+            # l'allineamento verticale globale rivela le colonne
+            if not pred_boundary and crystal_bounds and no_bimodality:
+                for cb in crystal_bounds:
+                    if p_left['x1'] < cb < p_right['x0']:
+                        pred_boundary = True
+                        break
 
             if gt_boundary and pred_boundary:
                 tp += 1
@@ -261,10 +302,12 @@ def evaluate_y_boundaries(particles: list[dict],
 # ---------------------------------------------------------------------------
 
 _WORKER_AXIS = 'x'
+_WORKER_METHOD = 'gap'
 
 
 def evaluate_table(json_path: str, xml_path: str,
-                   axis: str = 'x') -> dict | None:
+                   axis: str = 'x',
+                   method: str = 'gap') -> dict | None:
     """Pipeline: particelle → principio → classificazione gap."""
     with open(json_path) as f:
         words = json.load(f)
@@ -281,12 +324,12 @@ def evaluate_table(json_path: str, xml_path: str,
         return None
 
     if axis == 'x':
-        return evaluate_x_boundaries(particles, gt)
+        return evaluate_x_boundaries(particles, gt, method=method)
     elif axis == 'y':
         return evaluate_y_boundaries(particles, gt)
     else:
         # both: combina i conteggi
-        rx = evaluate_x_boundaries(particles, gt)
+        rx = evaluate_x_boundaries(particles, gt, method=method)
         ry = evaluate_y_boundaries(particles, gt)
         if rx is None and ry is None:
             return None
@@ -300,12 +343,14 @@ def evaluate_table(json_path: str, xml_path: str,
 
 def _eval_worker(args):
     json_path, xml_path = args
-    return evaluate_table(json_path, xml_path, axis=_WORKER_AXIS)
+    return evaluate_table(json_path, xml_path,
+                          axis=_WORKER_AXIS, method=_WORKER_METHOD)
 
 
-def _init_worker(axis):
-    global _WORKER_AXIS
+def _init_worker(axis, method='gap'):
+    global _WORKER_AXIS, _WORKER_METHOD
     _WORKER_AXIS = axis
+    _WORKER_METHOD = method
 
 
 # ---------------------------------------------------------------------------
@@ -372,6 +417,10 @@ def main():
     parser.add_argument('--dataset',
                         choices=['pubtables', 'fintabnet', 'hvac', 'both', 'all'],
                         default='pubtables')
+    parser.add_argument('--method',
+                        choices=['gap', 'gap+nn', 'gap+crystal'],
+                        default='gap',
+                        help='Metodo: gap (solo soglia), gap+nn (soglia + NN direction)')
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -380,7 +429,10 @@ def main():
     print(f"\n{'=' * 65}")
     print(f"  Test del Principio Percettivo (_natural_threshold)")
     print(f"  Ogni gap → confine si/no → confronto con ground truth")
+    method_label = {'gap': 'gap-only', 'gap+nn': 'gap + NN direction',
+                        'gap+crystal': 'gap + crystallization'}
     print(f"  Asse: {axis_label[args.axis]}  N={args.n}  seed={args.seed}  cores={args.cores}")
+    print(f"  Metodo: {method_label[args.method]}")
     print(f"{'=' * 65}")
 
     datasets = []
@@ -405,7 +457,7 @@ def main():
             with Pool(
                 args.cores,
                 initializer=_init_worker,
-                initargs=(args.axis,),
+                initargs=(args.axis, args.method),
             ) as pool:
                 for r in pool.imap_unordered(_eval_worker, work, chunksize=64):
                     if r is None:
@@ -414,7 +466,8 @@ def main():
                         results.append(r)
         else:
             for json_path, xml_path in pairs:
-                r = evaluate_table(json_path, xml_path, axis=args.axis)
+                r = evaluate_table(json_path, xml_path,
+                                   axis=args.axis, method=args.method)
                 if r is None:
                     skipped += 1
                 else:

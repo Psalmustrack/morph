@@ -662,3 +662,167 @@ class TestFullPipeline:
         # il sensing deve aver promosso almeno 1 TEXT
         assert n_text_after < n_text_before, \
             f"Nessuna promozione: TEXT prima={n_text_before}, dopo={n_text_after}"
+
+
+# ─── NN Column Evidence (Docstrum-inspired) ──────────────────────────
+
+class TestNNColumnEvidence:
+    """Test per _nn_column_evidence — segnale NN direction per confini."""
+
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from morph.core.sense import _nn_column_evidence
+        self.nn_ev = _nn_column_evidence
+
+    def test_equispaced_columns(self):
+        """Tabella equispaziate: NN verticale → evidenza confine per ogni gap."""
+        # 3 colonne, gap orizzontale 50px, gap verticale 12px
+        # Il NN di ogni parola è sotto di sé, non a destra
+        row = [
+            {'text': 'A', 'x': 50, 'y': 100, 'x0': 40, 'x1': 60,
+             'y0': 95, 'y1': 105, 'type': 'NUMERIC', 'size': 10},
+            {'text': 'B', 'x': 150, 'y': 100, 'x0': 140, 'x1': 160,
+             'y0': 95, 'y1': 105, 'type': 'NUMERIC', 'size': 10},
+            {'text': 'C', 'x': 250, 'y': 100, 'x0': 240, 'x1': 260,
+             'y0': 95, 'y1': 105, 'type': 'NUMERIC', 'size': 10},
+        ]
+        # Particelle nella riga sotto (distanza Y=12, molto meno di X=100)
+        row_below = [
+            {'text': 'D', 'x': 50, 'y': 112, 'x0': 40, 'x1': 60,
+             'y0': 107, 'y1': 117, 'type': 'NUMERIC', 'size': 10},
+            {'text': 'E', 'x': 150, 'y': 112, 'x0': 140, 'x1': 160,
+             'y0': 107, 'y1': 117, 'type': 'NUMERIC', 'size': 10},
+            {'text': 'F', 'x': 250, 'y': 112, 'x0': 240, 'x1': 260,
+             'y0': 107, 'y1': 117, 'type': 'NUMERIC', 'size': 10},
+        ]
+        all_p = row + row_below
+        ev = self.nn_ev(row, all_p)
+        # Entrambi i gap dovrebbero avere evidenza (NN verticale < 50% di orizzontale)
+        assert len(ev) == 2
+        assert all(ev), f"Atteso [True, True], ottenuto {ev}"
+
+    def test_within_cell_no_evidence(self):
+        """Parole nella stessa cella (vicine): NN orizzontale, nessuna evidenza."""
+        # "Sound" e "pressure" nella stessa cella, distanza centro-centro 15px
+        # Riga sotto a 20px — 20 < 15*0.5=7.5? No → nessuna evidenza ✓
+        row = [
+            {'text': 'Sound', 'x': 40, 'y': 100, 'x0': 30, 'x1': 50,
+             'y0': 95, 'y1': 105, 'type': 'TEXT', 'size': 10},
+            {'text': 'pressure', 'x': 55, 'y': 100, 'x0': 50, 'x1': 75,
+             'y0': 95, 'y1': 105, 'type': 'TEXT', 'size': 10},
+        ]
+        row_below = [
+            {'text': '42', 'x': 40, 'y': 120, 'x0': 35, 'x1': 45,
+             'y0': 115, 'y1': 125, 'type': 'NUMERIC', 'size': 10},
+        ]
+        all_p = row + row_below
+        ev = self.nn_ev(row, all_p)
+        assert len(ev) == 1
+        assert not ev[0], "Gap intra-cella non deve avere evidenza NN"
+
+    def test_empty_row(self):
+        """Riga con meno di 2 particelle: lista vuota."""
+        row = [{'text': 'X', 'x': 50, 'y': 100, 'x0': 40, 'x1': 60,
+                'y0': 95, 'y1': 105, 'type': 'TEXT', 'size': 10}]
+        ev = self.nn_ev(row, row)
+        assert ev == []
+
+    def test_no_other_rows(self):
+        """Nessuna particella fuori dalla riga: nessuna evidenza."""
+        row = [
+            {'text': 'A', 'x': 50, 'y': 100, 'x0': 40, 'x1': 60,
+             'y0': 95, 'y1': 105, 'type': 'NUMERIC', 'size': 10},
+            {'text': 'B', 'x': 150, 'y': 100, 'x0': 140, 'x1': 160,
+             'y0': 95, 'y1': 105, 'type': 'NUMERIC', 'size': 10},
+        ]
+        ev = self.nn_ev(row, row)  # all_particles = solo la riga stessa
+        assert len(ev) == 1
+        assert not ev[0], "Senza altre righe, nessuna evidenza NN"
+
+
+class TestCrystallizeColumns:
+    """Test per _crystallize_columns — allineamento verticale (cristallizzazione)."""
+
+    @pytest.fixture(autouse=True)
+    def _import(self):
+        from morph.core.sense import _crystallize_columns
+        self.crystal = _crystallize_columns
+
+    def test_three_columns_clear(self):
+        """3 colonne ben separate: 2 confini trovati."""
+        # Colonna 1: x~50, Colonna 2: x~200, Colonna 3: x~350
+        # Gap intra-colonna ~2px (jitter), inter-colonna ~150px → bimodale
+        particles = []
+        for y in [100, 112, 124, 136]:  # 4 righe
+            for cx in [50, 200, 350]:   # 3 colonne
+                particles.append({
+                    'text': 'V', 'x': cx + (y % 5) * 0.3,  # piccolo jitter
+                    'y': y, 'x0': cx - 10, 'x1': cx + 10,
+                    'y0': y - 5, 'y1': y + 5, 'size': 10, 'type': 'NUMERIC',
+                })
+        bounds = self.crystal(particles)
+        assert len(bounds) == 2, f"Attesi 2 confini, ottenuti {len(bounds)}: {bounds}"
+        # I confini devono stare tra le colonne
+        assert 50 < bounds[0] < 200, f"Confine 1 fuori range: {bounds[0]}"
+        assert 200 < bounds[1] < 350, f"Confine 2 fuori range: {bounds[1]}"
+
+    def test_equispaced_row_rescued(self):
+        """Riga equispaziate (gap uguali): la cristallizzazione trova i confini."""
+        # Simula il caso problematico: gap orizzontali tutti ~24px
+        # Ma centri X allineati verticalmente → cluster visibili
+        # Jitter realistico (~2px) tra righe per creare gap intra-cluster
+        jitter = [0, 2, -1, 3, 1]
+        particles = []
+        for i, y in enumerate([100, 112, 124, 136, 148]):  # 5 righe
+            j = jitter[i]
+            particles.append({'text': 'A', 'x': 100 + j, 'y': y,
+                              'x0': 90 + j, 'x1': 110 + j, 'y0': y-5, 'y1': y+5,
+                              'size': 10, 'type': 'NUMERIC'})
+            particles.append({'text': 'B', 'x': 200 + j, 'y': y,
+                              'x0': 190 + j, 'x1': 210 + j, 'y0': y-5, 'y1': y+5,
+                              'size': 10, 'type': 'NUMERIC'})
+            particles.append({'text': 'C', 'x': 300 + j, 'y': y,
+                              'x0': 290 + j, 'x1': 310 + j, 'y0': y-5, 'y1': y+5,
+                              'size': 10, 'type': 'NUMERIC'})
+        bounds = self.crystal(particles)
+        assert len(bounds) == 2, f"Attesi 2 confini, ottenuti {len(bounds)}: {bounds}"
+        assert 100 < bounds[0] < 200
+        assert 200 < bounds[1] < 300
+
+    def test_single_column_no_bounds(self):
+        """Tabella a colonna singola: nessun confine."""
+        particles = []
+        for y in [100, 112, 124, 136]:
+            particles.append({'text': 'V', 'x': 50 + (y % 3) * 0.5,
+                              'y': y, 'x0': 40, 'x1': 60,
+                              'y0': y-5, 'y1': y+5, 'size': 10, 'type': 'TEXT'})
+        bounds = self.crystal(particles)
+        assert bounds == []
+
+    def test_too_few_particles(self):
+        """Meno di 4 particelle: lista vuota."""
+        particles = [
+            {'text': 'A', 'x': 50, 'y': 100, 'x0': 40, 'x1': 60,
+             'y0': 95, 'y1': 105, 'size': 10, 'type': 'TEXT'},
+            {'text': 'B', 'x': 150, 'y': 100, 'x0': 140, 'x1': 160,
+             'y0': 95, 'y1': 105, 'size': 10, 'type': 'TEXT'},
+        ]
+        assert self.crystal(particles) == []
+
+    def test_boundaries_between_not_inside(self):
+        """I confini non devono cadere dentro un cluster di colonna."""
+        # 2 colonne: x~80 e x~400, ben separate
+        # Jitter realistico ~2px tra righe
+        jitter = [0, 2, -1, 3, 1]
+        particles = []
+        for i, y in enumerate([100, 115, 130, 145, 160]):
+            j = jitter[i]
+            particles.append({'text': 'L', 'x': 80 + j,
+                              'y': y, 'x0': 70 + j, 'x1': 90 + j,
+                              'y0': y-5, 'y1': y+5, 'size': 10, 'type': 'TEXT'})
+            particles.append({'text': 'R', 'x': 400 + j,
+                              'y': y, 'x0': 390 + j, 'x1': 410 + j,
+                              'y0': y-5, 'y1': y+5, 'size': 10, 'type': 'NUMERIC'})
+        bounds = self.crystal(particles)
+        assert len(bounds) == 1
+        assert 90 < bounds[0] < 390, f"Confine dentro un cluster: {bounds[0]}"

@@ -40,6 +40,7 @@ from multiprocessing import Pool
 import numpy as np
 
 from morph.bench.grid import _group_into_rows, _count_cols_ratio
+from morph.core.sense import _natural_threshold, _crystallize_columns
 from morph.bench.pubtables import (
     find_pairs as find_pairs_pubtables,
     json_to_particles,
@@ -651,6 +652,132 @@ def find_col_splits_ratio(
     return best_boundaries
 
 
+def find_col_splits_natural(
+    particles: list[dict],
+) -> list[float]:
+    """Find column boundary X-positions using _natural_threshold + crystal.
+
+    For each row: use _natural_threshold on gaps. When no bimodality
+    is found (equispaced), fall back to _crystallize_columns (vertical
+    alignment across all rows).
+
+    Same voting logic as find_col_splits_ratio but with adaptive threshold.
+
+    Returns:
+        Sorted list of column split X-positions.
+    """
+    if len(particles) < 2:
+        return []
+
+    rows = _group_into_rows(particles)
+    crystal_bounds = _crystallize_columns(particles)
+
+    votes, row_data = [], []
+    for row in rows:
+        if len(row) < 2:
+            continue
+        ps = sorted(row, key=lambda p: p['x0'])
+        gaps = [ps[i + 1]['x0'] - ps[i]['x1'] for i in range(len(ps) - 1)]
+        pos_gaps = [g for g in gaps if g > 0]
+
+        # Soglia locale
+        if len(pos_gaps) >= 3:
+            threshold = _natural_threshold(pos_gaps)
+            no_bimodality = threshold > max(pos_gaps)
+            if no_bimodality:
+                threshold = float('inf')
+        else:
+            threshold = float('inf')
+
+        # Trova confini
+        boundaries = []
+        for i, g in enumerate(gaps):
+            is_boundary = g > threshold
+            # Crystal rescue per righe equispaziate
+            if not is_boundary and threshold == float('inf') and crystal_bounds:
+                for cb in crystal_bounds:
+                    if ps[i]['x1'] < cb < ps[i + 1]['x0']:
+                        is_boundary = True
+                        break
+            if is_boundary:
+                boundaries.append((ps[i]['x1'] + ps[i + 1]['x0']) / 2)
+
+        n_cols = len(boundaries) + 1
+        votes.append(n_cols)
+        row_data.append((row, n_cols, boundaries))
+
+    if not votes:
+        return []
+    mode_cols = Counter(votes).most_common(1)[0][0]
+    if mode_cols <= 1:
+        return []
+
+    # Scegli la riga migliore (piu' particelle) con il conteggio modale
+    best_boundaries: list[float] = []
+    best_size = 0
+    for row, n, boundaries in row_data:
+        if n == mode_cols and len(row) > best_size:
+            best_boundaries = boundaries
+            best_size = len(row)
+    return best_boundaries
+
+
+def find_col_splits_ratio_crystal(
+    particles: list[dict],
+    k: float = 0.3,
+) -> list[float]:
+    """Ratio method + crystal rescue for equispaced rows.
+
+    Uses ratio (k*avg_w) for column counting — stable and accurate.
+    When ratio says 1 column (mode_cols <= 1), tries _crystallize_columns
+    as rescue for equispaced tables.
+    """
+    if len(particles) < 2:
+        return []
+    rows = _group_into_rows(particles)
+
+    votes, row_data = [], []
+    for row in rows:
+        if len(row) < 2:
+            continue
+        n = _count_cols_ratio(row, k=k)
+        votes.append(n)
+        row_data.append((row, n))
+    if not votes:
+        return []
+    mode_cols = Counter(votes).most_common(1)[0][0]
+
+    # Crystal rescue: ratio vede 1 colonna, crystal potrebbe trovare split
+    if mode_cols <= 1:
+        crystal_bounds = _crystallize_columns(particles)
+        if crystal_bounds and len(crystal_bounds) <= 20:
+            return crystal_bounds
+        return []
+
+    # Ratio path (identico a find_col_splits_ratio)
+    best_boundaries: list[float] = []
+    best_size = 0
+    for row, n in row_data:
+        if n == mode_cols and len(row) > best_size:
+            ps = sorted(row, key=lambda p: p['x0'])
+            widths = [p['x1'] - p['x0'] for p in ps]
+            gaps = [ps[i + 1]['x0'] - ps[i]['x1']
+                    for i in range(len(ps) - 1)]
+            avg_w = sum(widths) / len(widths) if widths else 10
+            if avg_w <= 0:
+                avg_w = 10
+            threshold = avg_w * k
+            boundaries = [
+                (ps[i]['x1'] + ps[i + 1]['x0']) / 2
+                for i, g in enumerate(gaps)
+                if g > threshold
+            ]
+            if len(boundaries) == mode_cols - 1:
+                best_boundaries = boundaries
+                best_size = len(row)
+    return best_boundaries
+
+
 # ---------------------------------------------------------------------------
 # Single-table evaluation
 # ---------------------------------------------------------------------------
@@ -660,6 +787,7 @@ def evaluate_grits(
     xml_path: str,
     top_only: bool = False,
     k_y: float = 0.1,
+    method: str = 'ratio',
 ) -> dict | None:
     """Compute GriTS_Top (and optionally GriTS_Con) for one table.
 
@@ -668,6 +796,7 @@ def evaluate_grits(
         xml_path: Path to ``.xml`` ground truth.
         top_only: Skip GriTS_Con (faster).
         k_y: Row detection boundary constant.
+        method: ``'ratio'`` (fixed k=0.3) or ``'natural'`` (threshold + crystal).
 
     Returns:
         Dict with metrics, or ``None`` if the table is invalid/too large.
@@ -692,7 +821,12 @@ def evaluate_grits(
         return None
 
     # Predicted structure
-    col_splits = find_col_splits_ratio(particles)
+    if method == 'natural':
+        col_splits = find_col_splits_natural(particles)
+    elif method == 'ratio+crystal':
+        col_splits = find_col_splits_ratio_crystal(particles)
+    else:
+        col_splits = find_col_splits_ratio(particles)
     rows_pred = group_rows_per_column(particles, col_splits, k_y=k_y)
     n_pred_rows = len(rows_pred)
     n_pred_cols = len(col_splits) + 1
@@ -752,6 +886,7 @@ def evaluate_grits(
 
 _WORKER_TOP_ONLY = False
 _WORKER_KY = 0.1
+_WORKER_METHOD = 'ratio'
 
 
 def _eval_worker(args):
@@ -760,14 +895,16 @@ def _eval_worker(args):
     return evaluate_grits(
         json_path, xml_path,
         top_only=_WORKER_TOP_ONLY, k_y=_WORKER_KY,
+        method=_WORKER_METHOD,
     )
 
 
-def _init_worker(top_only, k_y):
+def _init_worker(top_only, k_y, method='ratio'):
     """Initialiser for worker processes."""
-    global _WORKER_TOP_ONLY, _WORKER_KY
+    global _WORKER_TOP_ONLY, _WORKER_KY, _WORKER_METHOD
     _WORKER_TOP_ONLY = top_only
     _WORKER_KY = k_y
+    _WORKER_METHOD = method
 
 
 # ---------------------------------------------------------------------------
@@ -790,6 +927,9 @@ def main():
                         help='Topology only (skip GriTS_Con)')
     parser.add_argument('--dataset', choices=['pubtables', 'fintabnet'],
                         default='pubtables')
+    parser.add_argument('--method', choices=['ratio', 'natural', 'ratio+crystal'],
+                        default='ratio',
+                        help='Column detection: ratio (k=0.3), natural (threshold+crystal), ratio+crystal (ratio + crystal rescue)')
     parser.add_argument('--verbose', '-v', action='store_true')
     args = parser.parse_args()
 
@@ -801,8 +941,13 @@ def main():
         pairs = find_pairs_pubtables(limit=args.n)
         ds_name = 'PubTables-1M'
 
+    method_label = {
+        'ratio': 'ratio k=0.3',
+        'natural': 'natural+crystal',
+        'ratio+crystal': 'ratio k=0.3 + crystal rescue',
+    }
     print(f"\n{'=' * 65}")
-    print(f"  GriTS Benchmark — k_x=0.3  k_y={args.ky}  on {ds_name}")
+    print(f"  GriTS Benchmark — {method_label[args.method]}  k_y={args.ky}  on {ds_name}")
     print(f"  N={len(pairs)}  seed={args.seed}  cores={args.cores}"
           f"  {'top-only' if args.top_only else 'top+con'}")
     print(f"{'=' * 65}\n")
@@ -816,7 +961,7 @@ def main():
         with Pool(
             args.cores,
             initializer=_init_worker,
-            initargs=(args.top_only, args.ky),
+            initargs=(args.top_only, args.ky, args.method),
         ) as pool:
             for i, r in enumerate(
                 pool.imap_unordered(_eval_worker, work, chunksize=32),
@@ -834,6 +979,7 @@ def main():
             r = evaluate_grits(
                 json_path, xml_path,
                 top_only=args.top_only, k_y=args.ky,
+                method=args.method,
             )
             if r is None:
                 skipped += 1
@@ -857,7 +1003,7 @@ def main():
 
     # --- Report ---
     print(f"\n{'=' * 65}")
-    print(f"  GriTS RESULTS — k_x=0.3  k_y={args.ky}  [{ds_name}]")
+    print(f"  GriTS RESULTS — {method_label[args.method]}  k_y={args.ky}  [{ds_name}]")
     print(f"{'=' * 65}")
     print(f"  Tables: {n} evaluated, {skipped} skipped")
     print(f"  Time: {elapsed:.1f}s ({n / elapsed:.0f} tab/s)\n")
