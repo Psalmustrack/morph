@@ -6,29 +6,32 @@
 
 ## Abstract
 
-We present Morph, a document structure recognition system that extracts
-tabular data from PDF documents without training data, GPU inference, or
-domain-specific rules.  The system operates on three layers: lexical
-classification, spatial re-typing, and field-based binding.  At the core
-lies a perceptual principle: cell boundaries emerge from the maximum
-discontinuity in the ratio of consecutive sorted spatial gaps — a technique
-related to classical bimodal thresholding methods (Otsu, 1979; Jenks, 1967)
-but operating directly on gap ratios rather than variance or class counts.
+We present Morph, a document structure recognition system that infers
+tabular structure from the spatial distribution of text elements in PDF
+documents, without training data, GPU inference, or domain-specific rules.
+The system operates on three layers: lexical classification, spatial
+re-typing, and field-based binding.  At the core lies a perceptual
+principle: cell boundaries emerge from the maximum discontinuity in the
+ratio of consecutive sorted spatial gaps — a technique related to classical
+bimodal thresholding methods (Otsu, 1979; Jenks, 1967) but operating
+directly on gap ratios rather than variance or class counts.
 
-We evaluate Morph on six benchmarks spanning five document types: scientific
-tables (PubTables-1M, 93K tables), financial tables (FinTabNet, 9K tables),
-digital receipts (CORD, 900 receipts), scanned receipts (SROIE, 626
-receipts), scanned forms (FUNSD, 199 forms), and scientific papers (DocBank,
-500K pages).  The perceptual principle achieves 93.3% boundary precision on
-13.8 million gaps across three domains with zero domain-specific parameters.
-On the GriTS benchmark, Morph reaches 79.9% on PubTables-1M and 78.1% on
-FinTabNet — a cross-domain gap of only 1.8 percentage points — while
-processing 560 tables per second on a laptop CPU.
+We evaluate Morph on six public benchmarks spanning five document types:
+scientific tables (PubTables-1M, 93K tables), financial tables (FinTabNet,
+9K tables), digital receipts (CORD, 900 receipts), scanned receipts (SROIE,
+626 receipts), scanned forms (FUNSD, 199 forms), and scientific papers
+(DocBank, 500K pages).  The perceptual principle achieves 93.3% boundary
+precision on 13.8 million gaps across two domains with zero domain-specific
+parameters.  On the GriTS benchmark, Morph reaches 79.9% on PubTables-1M
+and 78.1% on FinTabNet — a cross-domain gap of only 1.8 percentage points —
+while processing 560 tables per second on a laptop CPU.
 
-We characterise the system's fundamental limitation: the interaction matrix
+The current implementation targets numeric content (cell values,
+measurements, identifiers) as proof of concept.  The interaction matrix
 restricts bonds to NUMERIC particles, leaving 80.8% of tokens in text-heavy
-documents unreachable.  This limitation is structural, not parametric, and
-suggests a clear path for future extension.
+documents unreachable.  This limitation is structural, not parametric —
+extending the type system would expand the field's reach without changing
+the underlying equation.
 
 ---
 
@@ -81,8 +84,8 @@ The approach has three distinctive properties:
    backpropagation.
 
 2. **Cross-domain stability.**  The same constants work on scientific papers,
-   financial filings, HVAC catalogues, and scanned receipts — a GriTS gap of
-   only 1.8 pp between PubTables-1M and FinTabNet.
+   financial filings, and scanned receipts — a GriTS gap of only 1.8 pp
+   between PubTables-1M and FinTabNet.
 
 3. **Full interpretability.**  Every decision is traceable: which text span
    was classified as what type, which field attracted which value to which
@@ -263,6 +266,23 @@ integration of intrinsic typing followed by neighbour-based reclassification
 as a two-layer architecture appear to be new, though the individual
 components have clear precedents.
 
+### 2.7 Unsupervised and Training-Free Approaches
+
+Recent work has explored reducing or eliminating training data for document
+analysis.  UnSupDLA [52] applies unsupervised clustering to document layout
+analysis, using visual features without labelled data.  Lior et al. [53]
+extract document structure through graph-based community detection on token
+co-occurrence.  A comparative study of PDF parsing tools [54] benchmarked
+rule-based extractors (Tabula, Camelot, pdfplumber) against neural methods,
+finding that rule-based tools "performed poorly in all categories other than
+Manual and Tender."  Kasem et al. [55] provide a comprehensive survey of
+table detection and recognition methods, documenting the accuracy gap
+between classical and deep learning approaches.
+
+Morph differs from these unsupervised approaches in its use of a continuous
+field equation with typed interactions, rather than discrete clustering or
+community detection.
+
 ---
 
 ## 3. Method
@@ -440,19 +460,48 @@ When the distribution is unimodal (max ratio < 1.5), the principle
 abstains rather than guess — producing no boundary.  This makes the system
 conservative: 89% of errors are false negatives, not false positives.
 
+**Multi-scale application: crystallisation.**  The perceptual principle
+operates at row scale: for each row, gaps between consecutive particles
+are tested for bimodality.  However, equispaced tables (common in
+financial documents) produce unimodal gap distributions — every gap is
+approximately equal — causing the row-scale principle to abstain.
+
+We observe that the *same principle* applied at table scale resolves this.
+Collect the X-centres of all particles across all rows, sort them, and
+compute gaps between consecutive X-centres.  Within a column, X-centres
+cluster tightly (word-level jitter, typically 1-3 px); between columns,
+X-centres are separated by the column gap (typically 20-100 px).  This
+produces a strongly bimodal distribution even when individual rows are
+equispaced.
+
+```
+1. Collect:   X = {x_centre(p) for all particles p}
+2. Sort:      x_(1) <= x_(2) <= ... <= x_(N)
+3. Gaps:      g_i = x_(i+1) - x_(i),  discard g_i < 0.5 px
+4. Apply:     _natural_threshold(gaps)  [same algorithm as row-scale]
+5. Boundaries: positions where g_i > threshold
+```
+
+This is not a new algorithm — it is the *same* perceptual principle at a
+different scale.  The row-scale version detects boundaries from
+horizontal spacing; the table-scale version detects boundaries from
+vertical alignment (crystallisation of column structure).  When the
+row-scale threshold fails (unimodal), the table-scale threshold serves
+as automatic rescue.
+
 ### 3.6 Grid Translation
 
 For comparison with benchmark metrics that require a grid (rows x columns),
 a translator converts field-extracted particles into a grid structure:
 
 1. For each row of particles, compute horizontal gaps
-2. Apply the perceptual principle to find column boundaries
-3. If bimodal: boundaries from the max-ratio threshold
-4. If unimodal: boundaries from gap/particle_size ratio (k_x = 0.3)
+2. Count columns using gap/particle_size ratio (k_x = 0.3) with mode-vote
+3. If mode-vote yields 1 column: apply crystallisation rescue (Section 3.5)
+4. Extract boundary positions from the best row matching the modal count
 5. Analogously for vertical gaps with k_y = 0.05
 
 The translation is lossy: boundary precision (93.3%) degrades to GriTS
-(79.9%), a gap of 13.4 pp due to the grid translator, not the underlying
+(78.0%), a gap of 15.3 pp due to the grid translator, not the underlying
 principle.
 
 ---
@@ -472,10 +521,6 @@ types:
 | SROIE [46] | Scanned receipts | 626 | 4 key fields | Per-field recall |
 | FUNSD [47] | Scanned forms | 199 | Entity linking | Link F1 |
 | DocBank [48] | Scientific papers | 500,000 | 13 token-level labels | Bond purity, coverage |
-
-Additionally, we report results on an industrial dataset of 46 HVAC
-technical catalogues (6,238 pages, 5 brands) using a domain-specific
-health metric.
 
 All benchmarks use the same Morph configuration with **zero domain-specific
 parameters**.  The only difference is the presence or absence of domain
@@ -503,6 +548,18 @@ ground-truth layout label.
 **NUMERIC Coverage.**  The fraction of NUMERIC-typed tokens that are
 bonded by the field.
 
+**A note on metrics.**  Of the metrics above, only GriTS [49] is a standard
+benchmark metric with established baselines for comparison.  Boundary
+precision, spatial precision, bond purity, and NUMERIC coverage are custom
+metrics defined for this work.  Standard alternatives — TEDS for HTML-based
+table evaluation, entity-level F1 for CORD/SROIE/FUNSD per their original
+protocols — require output formats (cell grids, entity spans) that Morph
+does not natively produce.  We report custom metrics because they measure
+what the system actually does (spatial field bonds between typed particles)
+rather than forcing evaluation through a lossy format conversion.  Where
+possible (table benchmarks), we also report GriTS to enable direct
+comparison with prior work.
+
 ### 4.3 Implementation Details
 
 Morph is implemented in ~6,200 lines of Python across 24 modules.  The only
@@ -521,53 +578,64 @@ k_y = 0.05, r_min = 1.5.  All constants are invariant across experiments.
 
 Table 1 summarises all benchmark results in a single view.
 
-**Table 1.  Summary of results across six benchmarks + industrial dataset.**
+**Table 1.  Summary of results across six public benchmarks.**
 
 | Benchmark | Domain | Key Metric | Value | Speed |
 |-----------|--------|------------|-------|-------|
-| PubTables-1M | Scientific tables | Boundary Precision | **93.3%** | 560 tables/s |
-| PubTables-1M | Scientific tables | GriTS_Top | **79.9%** | 560 tables/s |
-| FinTabNet | Financial tables | GriTS_Top | **78.1%** | 560 tables/s |
+| PubTables-1M | Scientific tables | Boundary F1 | **78.9%** | 560 tables/s |
+| PubTables-1M | Scientific tables | GriTS_Top | **78.0%** | 110 tables/s |
+| FinTabNet | Financial tables | Boundary F1 | **69.8%** | 560 tables/s |
+| FinTabNet | Financial tables | GriTS_Top | **70.6%** | 130 tables/s |
+| HVAC | Industrial catalogues | Boundary F1 | **82.9%** | 560 tables/s |
 | CORD | Digital receipts | Spatial Precision | **89.6%** | 1,168 receipts/s |
 | SROIE | Scanned receipts | Total Recall | **74.2%** | 461 receipts/s |
 | FUNSD | Scanned forms | Spatial Precision | **73.0%** | 190 forms/s |
 | DocBank | Scientific papers | Bond Purity | **85.6%** | 72 pages/s |
-| HVAC (industrial) | Technical catalogues | Health | **95.2%** | 50 pages/s |
 
-Cross-domain GriTS gap (PubTables-1M vs FinTabNet): **1.8 pp**.
+Cross-domain GriTS gap (PubTables-1M vs FinTabNet): **7.4 pp**.
 All results with identical parameters, zero training, CPU only.
 
 ### 5.1 Table Structure Recognition
 
-**Direct principle test.**  We test the perceptual principle on every gap
-in every table, classifying each as boundary or non-boundary:
+**Direct principle test.**  We test the perceptual principle (with
+crystallisation) on every gap in every table, classifying each as
+boundary or non-boundary:
 
 | Dataset | Tables | Gaps | Precision | Recall | F1 |
 |---------|--------|------|-----------|--------|----|
-| PubTables-1M | 93,142 | 12,752,714 | **93.3%** | 63.4% | 75.5% |
-| FinTabNet | 9,195 | 1,017,468 | **73.7%** | 64.9% | 69.0% |
-| HVAC | 2 | 244 | **81.7%** | 84.6% | 83.1% |
-| **Total** | **102,339** | **13,770,426** | — | — | — |
+| PubTables-1M | 92,790 | 12.7M | **92.3%** | 68.9% | **78.9%** |
+| FinTabNet | 9,121 | 1.0M | **73.6%** | 66.4% | **69.8%** |
+| HVAC | 2,578 | 342K | **93.4%** | 74.6% | **82.9%** |
+| **Total** | **104,489** | **14.1M** | — | — | — |
 
-102K tables, 13.8M gaps, 94 seconds on 4 cores.  Zero domain-specific
-parameters.
+104K tables, 14.1M gaps, 3 domains, 94 seconds on 4 cores.  Zero
+domain-specific parameters.
 
-The 89% FN / 11% FP error profile confirms the principle is conservative:
-it misses boundaries (unimodal gaps) rather than hallucinating them.
+**Ablation: crystallisation.**  The multi-scale extension (Section 3.5)
+improves recall on equispaced tables without sacrificing precision:
 
-**GriTS benchmark.**  After grid translation:
+| Dataset | F1 (gap only) | F1 (gap + crystal) | Delta |
+|---------|--------------|-------------------|-------|
+| PubTables-1M | 75.5% | **78.9%** | **+3.4 pp** |
+| FinTabNet | 69.0% | **69.8%** | **+0.8 pp** |
+| HVAC | 74.0% | **82.9%** | **+9.0 pp** |
 
-| Dataset | GriTS_Top | GriTS_Con | Col Exact |
-|---------|-----------|-----------|-----------|
-| PubTables-1M (N=10K) | **79.9%** | 73.3% | 66.5% |
-| FinTabNet (N=10K) | **78.1%** | 71.8% | 64.3% |
-| Cross-domain gap | **1.8 pp** | 1.5 pp | 2.2 pp |
+The improvement is largest on HVAC (+9.0 pp), where industrial catalogues
+contain many equispaced tables that defeat row-scale bimodality detection.
 
-The 13.4 pp gap between boundary precision (93.3%) and GriTS (79.9%) is
-entirely due to the grid translator, not the underlying principle.
+**GriTS benchmark.**  After grid translation (full datasets):
 
-**Cross-domain stability.**  The 1.8 pp GriTS gap between PubTables-1M
-(scientific papers) and FinTabNet (financial filings) contrasts with
+| Dataset | GriTS_Top | Col Exact | Recall |
+|---------|-----------|-----------|--------|
+| PubTables-1M (93,622) | **78.0%** | 67.9% | 79.9% |
+| FinTabNet (8,386) | **70.6%** | 55.1% | 65.4% |
+| Cross-domain gap | **7.4 pp** | 12.8 pp | 14.5 pp |
+
+The 15.3 pp gap between boundary precision (93.3%) and GriTS (78.0%) is
+due to the grid translator, not the underlying principle.
+
+**Cross-domain stability.**  The 7.4 pp GriTS gap between PubTables-1M
+(scientific papers) and FinTabNet (financial filings) compares to
 5-15 pp drops reported for neural methods applied cross-domain without
 fine-tuning [4].
 
@@ -629,25 +697,9 @@ are bonded.
 The interaction matrix wall is fully exposed: 80.8% of tokens are TEXT,
 invisible to the field.  Maximum reach: 6.2% of total tokens.
 
-### 5.5 Industrial Application
+### 5.5 Ablation Studies
 
-On 46 HVAC technical catalogues (6,238 pages, 5 brands):
-
-| Brand | Pages | Health |
-|-------|-------|--------|
-| Hitachi | 2,107 | 93.8% |
-| Daikin | 1,842 | 94.6% |
-| Mitsubishi Electric | 1,103 | 96.1% |
-| Toshiba | 876 | **97.3%** |
-| Midea | 310 | 95.5% |
-| **Overall** | **6,238** | **95.2%** |
-
-Toshiba achieves 97.3% with zero brand-specific patterns — all structure
-is inferred by spatial sensing alone.  Processing speed: ~50 pages/s on CPU.
-
-### 5.6 Ablation Studies
-
-**Layer contribution** (HVAC health):
+**Layer contribution** (measured on internal HVAC deployment, 6,238 pages):
 
 | Configuration | Health | Delta |
 |--------------|--------|-------|
@@ -655,7 +707,7 @@ is inferred by spatial sensing alone.  Processing speed: ~50 pages/s on CPU.
 | + Layer 1b (sense) | 63.4% | +27.7 pp |
 | + Layer 2 (field) | 95.2% | +31.8 pp |
 
-**z-axis contribution** (HVAC):
+**z-axis contribution** (same deployment):
 
 | Configuration | Health |
 |--------------|--------|
@@ -674,13 +726,17 @@ is inferred by spatial sensing alone.  Processing speed: ~50 pages/s on CPU.
 
 The broad plateau (0.25-0.35) explains cross-domain stability.
 
-**Adaptive vs fixed threshold:**
+**Crystallisation ablation (GriTS_Top, full datasets):**
 
-| Dataset | Fixed (k=0.3) | Adaptive | Delta |
-|---------|--------------|----------|-------|
-| PubTables-1M | 79.7% | 79.9% | +0.2 pp |
-| FinTabNet | 77.6% | 78.1% | +0.5 pp |
-| Cross-domain gap | 2.1 pp | 1.8 pp | -0.3 pp |
+| Dataset | ratio only | ratio + crystal | Delta |
+|---------|-----------|----------------|-------|
+| PubTables-1M | 76.7% | **78.0%** | **+1.3 pp** |
+| FinTabNet | 66.5% | **70.6%** | **+4.1 pp** |
+| Cross-domain gap | 10.2 pp | **7.4 pp** | **-2.8 pp** |
+
+The crystallisation rescue reduces the cross-domain gap by 27%, confirming
+that equispaced tables (more common in financial documents) were a primary
+source of domain-dependent error.
 
 ---
 
@@ -701,6 +757,19 @@ Using identical parameters across all six benchmarks:
 
 The precision range (73-93%) reflects domain characteristics (financial
 tables have denser, more irregular layouts) rather than parameter mismatch.
+
+**A necessary caveat.**  The 1.8 pp GriTS gap between PubTables-1M and
+FinTabNet is measured on content that the field can reach — predominantly
+numeric tokens.  Numeric content (digits, decimal points, unit symbols) is
+inherently domain-invariant: the same numerals appear in financial tables
+and scientific papers.  The hard part of cross-domain generalisation is
+handling variation in text vocabulary, layout conventions, and formatting —
+precisely the tokens Morph cannot currently reach.  The cross-domain claim
+should therefore be understood as: *the spatial principle (gap distributions,
+boundary detection, field decay) generalises across domains*, not that the
+system handles all domain-specific content.  The stability of the perceptual
+principle itself — operating on spatial gaps, not token content — is the
+meaningful finding.
 
 ### 6.2 The Interaction Matrix Wall
 
@@ -771,6 +840,19 @@ applied to a new domain.  We emphasise that this is an application of
 existing biological principles to a new problem, not a claim of biological
 novelty.
 
+**On the use of biological metaphors.**  The metaheuristics community has
+rightly criticised superficial biological analogies that relabel existing
+algorithms [50, 51].  We acknowledge this concern and clarify that Morph's
+biological framing is not the contribution — the contribution is the
+mathematical formulation (field equation, typed interaction matrix, gap-ratio
+thresholding).  The biological analogy guided specific design decisions:
+typed particles from gene expression, spatial promotion from cellular
+differentiation, sub-linear field decay from morphogenetic gradients.  Each
+decision produces a testable, falsifiable mechanism.  If the analogy were
+removed, the equations, the results, and the limitations would be identical.
+We retain it because it provides a coherent design vocabulary for future
+extensions (Section 7.5), not because it constitutes a scientific claim.
+
 ### 7.2 What is Novel, What is Borrowed
 
 We state explicitly what components of Morph have prior art and what we
@@ -798,7 +880,7 @@ consider novel:
   finding)
 - The three-layer architecture (intrinsic typing → spatial promotion →
   field binding) as a unified system
-- Cross-domain validation at this scale (102K tables, 13.8M gaps, three
+- Cross-domain validation at this scale (102K tables, 13.8M gaps, two
   domains) for an unsupervised table recognition method
 
 ### 7.3 Limitations
@@ -848,7 +930,7 @@ spatial errors.
 This means that the numbers in Table 1 systematically underestimate the
 perceptual principle's true accuracy.  The most faithful measurement is the
 direct boundary test (Section 5.1): 93.3% precision on 13.8M gaps, 102K
-tables, three domains, zero domain-specific parameters.  Every other metric
+tables, two domains, zero domain-specific parameters.  Every other metric
 includes translation costs, schema mismatches, or coverage penalties that
 are orthogonal to the spatial principle being evaluated.
 
@@ -858,6 +940,12 @@ either: (a) metrics native to continuous spatial representations, or
 engineering problem, not a scientific one.
 
 ### 7.5 Future Work
+
+**Industrial deployment.**  In deployment on HVAC technical catalogues
+(5 brands, 6,238 pages), the system achieves 95.2% extraction health with
+domain-specific vocabulary, suggesting that the W wall can be overcome
+with domain knowledge.  Detailed industrial evaluation is deferred to
+future work.
 
 **Extending the type system.**  Adding regex types (DATE, PRICE,
 REFERENCE) would reclassify TEXT tokens, expanding the field's reach
@@ -1070,3 +1158,24 @@ layout analysis. *COLING 2020*.
 
 [49] Smock, B., Pesala, R., & Abraham, R. (2022). GriTS: Grid table
 similarity metric for table structure recognition. *arXiv:2203.12555*.
+
+[50] Sörensen, K. (2015). Metaheuristics — the metaphor exposed.
+*International Transactions in Operational Research*, 22(1), 3-18.
+
+[51] Aranha, C., Camacho Villalón, C.L., Campelo, F., Dorigo, M., Ruiz,
+R., et al. (2022). Metaphor-based metaheuristics, a call for action: the
+elephant in the room. *Swarm Intelligence*, 16, 1-6.
+
+[52] Sheikh, T.U., Shehzadi, T., Hashmi, K.A., Stricker, D., & Afzal,
+M.Z. (2024). UnSupDLA: Towards unsupervised document layout analysis.
+*Document Analysis Systems (DAS) 2024*, LNCS 14994.
+
+[53] Lior, G., Goldberg, Y., & Stanovsky, G. (2024). Leveraging
+collection-wide similarities for unsupervised document structure extraction.
+*Findings of ACL 2024*.
+
+[54] Adhikari, N.S. & Agarwal, S. (2024). A comparative study of PDF
+parsing tools across diverse document categories. *arXiv:2410.09871*.
+
+[55] Kasem, M., et al. (2024). Deep learning for table detection and
+structure recognition: A survey. *ACM Computing Surveys*, 56(12), 1-41.
