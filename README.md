@@ -26,6 +26,7 @@ Graph L0 nodes, SQL rows, and RAG chunks in a single pass.
 | Cross-domain gap (columns) | **0.7 pp** | Field equation, full scale |
 | **CORD Bond F1** (receipts) | **31.6%** | 800 receipts, zero vocabulary |
 | CORD Precision (campo puro) | **89.6%** | 800 receipts, translation cost 0.1pp |
+| **FUNSD Bond F1** (forms) | **21.1%** | 149 forms, 59% links unreachable (no NUMERIC) |
 | HVAC catalogue health | **95.2%** | 6,238 pages, 5 brands |
 | Pages processed | **6,238** | 46 catalogues |
 | Processing speed | **560 tab/s** | i7-10850H, no GPU |
@@ -109,6 +110,39 @@ The bottleneck is clear: menu items are TEXT→NUMERIC pairs where the product
 name has no SPEC_LABEL type.  The field ignores them because `W(TEXT, NUMERIC) = 0`.
 This weakness directly maps to FUNSD (the next benchmark in the cascade),
 where extending W to TEXT↔TEXT bonds is the central challenge.
+
+### FUNSD Benchmark (Form Entity Linking)
+
+FUNSD (Form Understanding in Noisy Scanned Documents) contains 199 scanned
+forms with word-level annotations and entity linking (question→answer pairs).
+This is the first TEXT↔TEXT benchmark: both questions ("TO:", "DATE:") and
+answers ("George Baroody", "12/10/98") are mostly text, not numeric.
+
+**Metric**: Entity-linking F1 at two levels.
+
+```
+Level               Split    Prec     Recall   F1       Forms
+──────────────────  ───────  ───────  ───────  ───────  ─────
+Spatial (any Q)     test     53.4%    19.2%    28.2%    50
+Spatial (any Q)     train    73.0%    22.0%    33.8%    149
+Bond (correct Q)    test     44.7%    13.5%    20.8%    50
+Bond (correct Q)    train    61.2%    12.8%    21.1%    149
+```
+
+**Translation cost**: 5.6–9.2 pp (spatial → bond).  Higher than CORD (0.1 pp)
+because the field sometimes points to the wrong question entity.
+
+**Structural bottleneck**:
+- 59% of GT links are **unreachable** — the answer entity has no NUMERIC words
+- Only 22–24% of answer words are NUMERIC (the rest is pure text)
+- Only 3% of question words are NUMERIC → field cannot target them
+- On reachable links only: recall rises to ~32%
+
+**Diagnosis**: `W(TEXT, TEXT) = 0` is the root cause.  The field cannot create
+bonds between text entities.  Extending W is the next architectural step —
+it would unlock both FUNSD (form understanding) and CORD menu items.
+
+**Speed**: 190 forms/s on CPU.
 
 ---
 
@@ -280,6 +314,12 @@ python -m morph.bench.cord --split test
 # CORD receipt benchmark (train split, 800 receipts)
 python -m morph.bench.cord --split train
 
+# FUNSD form entity linking (test split, 50 forms)
+python -m morph.bench.funsd --split test
+
+# FUNSD form entity linking (train split, 149 forms)
+python -m morph.bench.funsd --split train
+
 # Regression tests (65 tests)
 pytest tests/ -v
 ```
@@ -323,6 +363,7 @@ morph/
 │   ├── grid.py           # Grid translator (particles → rows/columns)
 │   ├── boundaries.py     # Direct principle test (gap classification)
 │   ├── cord.py           # CORD receipt benchmark (F1, 4 levels)
+│   ├── funsd.py          # FUNSD form entity linking (F1, 2 levels)
 │   └── adaptive_k.py     # Max-ratio-jump experiment
 │
 └── docs/                 # Extended documentation
@@ -402,6 +443,7 @@ morph/
 - PubTables-1M dataset (words + XML annotations)
 - FinTabNet.c-Structure dataset
 - CORD dataset (receipt JSON annotations)
+- FUNSD dataset (form entity linking annotations)
 
 **Optional (pipeline integration):**
 - `knowledge` module (header normalisation, active learning)
@@ -452,6 +494,7 @@ specifiche per dominio**.
 | Gap cross-dominio (colonne) | **0.7 pp** | Campo, full scale |
 | **CORD Bond F1** (ricevute) | **31.6%** | 800 ricevute, zero vocabolario |
 | CORD Precision (campo puro) | **89.6%** | 800 ricevute, costo traduzione 0.1pp |
+| **FUNSD Bond F1** (form) | **21.1%** | 149 form, 59% link irraggiungibili (no NUMERIC) |
 | Health cataloghi HVAC | **95.2%** | 6.238 pagine, 5 brand |
 | Velocita' | **560 tab/s** | i7-10850H, nessuna GPU |
 
