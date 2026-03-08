@@ -232,6 +232,7 @@ def _crystallize_columns(all_particles: list[dict]) -> list[float]:
     return [pos for g, pos in zip(gaps, positions) if g > threshold]
 
 
+
 def _estimate_row_spacing_all(particles: list[dict]) -> float:
     """Estimate row spacing from ALL particles (not just NUMERIC).
 

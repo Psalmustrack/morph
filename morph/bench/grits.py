@@ -944,7 +944,7 @@ def main():
     method_label = {
         'ratio': 'ratio k=0.3',
         'natural': 'natural+crystal',
-        'ratio+crystal': 'ratio k=0.3 + crystal rescue',
+        'ratio+crystal': 'ratio k=0.3 + col crystal',
     }
     print(f"\n{'=' * 65}")
     print(f"  GriTS Benchmark — {method_label[args.method]}  k_y={args.ky}  on {ds_name}")
