@@ -728,15 +728,18 @@ The broad plateau (0.25-0.35) explains cross-domain stability.
 
 **Crystallisation ablation (GriTS_Top, full datasets):**
 
-| Dataset | ratio only | ratio + crystal | Delta |
-|---------|-----------|----------------|-------|
-| PubTables-1M | 76.7% | **78.0%** | **+1.3 pp** |
-| FinTabNet | 66.5% | **70.6%** | **+4.1 pp** |
-| Cross-domain gap | 10.2 pp | **7.4 pp** | **-2.8 pp** |
+| Variant | PubTables-1M | FinTabNet | Delta cross-domain |
+|---------|-------------|-----------|-------------------|
+| ratio only (baseline) | 76.7% | 66.5% | 10.2 pp |
+| + column crystal | **78.0%** (+1.3) | **70.6%** (+4.1) | **7.4 pp** (-27%) |
+| + column & row crystal | 78.9% (+0.9) | 68.5% (-2.1) | 10.4 pp (+41%) |
 
-The crystallisation rescue reduces the cross-domain gap by 27%, confirming
-that equispaced tables (more common in financial documents) were a primary
-source of domain-dependent error.
+Column crystallisation improves both domains and reduces the cross-domain
+gap by 27%.  Row crystallisation was tested and rejected: it improves
+PubTables-1M marginally but degrades FinTabNet by 2.1 pp.  The asymmetry
+is structural — columns are rigid (words align vertically within a column),
+while rows are elastic (cells may contain multiple text lines, creating
+spurious Y-centre clusters that mimic row boundaries).
 
 ---
 
