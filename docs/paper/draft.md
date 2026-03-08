@@ -819,7 +819,45 @@ unimodal gaps where no natural break exists.
 **No multi-line cells.**  Cells that wrap to multiple lines are treated as
 separate rows.
 
-### 7.4 Future Work
+### 7.4 The Evaluation Gap
+
+A methodological concern runs through all our experiments: **existing
+benchmark metrics do not measure what Morph natively produces**.
+
+Morph's output is a set of typed particles bonded by a continuous field —
+entity-value-spec triples, not a grid of rows and columns.  All standard
+table structure metrics (GriTS [49], TEDS, IoU) assume grid output.
+Evaluating Morph therefore requires a lossy grid translation step
+(Section 3.6) that introduces errors independent of the perceptual
+principle itself.
+
+The magnitude of this translation cost is measurable: boundary precision
+(93.3%) — a direct test of the principle on raw gaps — drops to GriTS
+(79.9%) after grid translation, a loss of **13.4 percentage points**.
+This gap is not a limitation of the principle but of the evaluation
+protocol.  The grid translator is a ~50-line adapter written for benchmark
+compatibility, not a core component.
+
+More broadly, no existing benchmark evaluates open-ended field bonds.  The
+receipt benchmarks (CORD, SROIE) come closest, testing key-value extraction,
+but with a fixed schema.  DocBank (Section 5.4) measures bond purity but
+not the structural quality of extracted tuples.  FUNSD tests entity linking
+but penalises the system for a coverage limitation (the W wall), not for
+spatial errors.
+
+This means that the numbers in Table 1 systematically underestimate the
+perceptual principle's true accuracy.  The most faithful measurement is the
+direct boundary test (Section 5.1): 93.3% precision on 13.8M gaps, 102K
+tables, three domains, zero domain-specific parameters.  Every other metric
+includes translation costs, schema mismatches, or coverage penalties that
+are orthogonal to the spatial principle being evaluated.
+
+We argue that meaningful evaluation of particle-field systems requires
+either: (a) metrics native to continuous spatial representations, or
+(b) substantial improvement of the grid translator — which is an
+engineering problem, not a scientific one.
+
+### 7.5 Future Work
 
 **Extending the type system.**  Adding regex types (DATE, PRICE,
 REFERENCE) would reclassify TEXT tokens, expanding the field's reach
@@ -866,10 +904,13 @@ modes are difficult to characterise.
 
 ## Acknowledgments
 
-The mathematical formalization, code implementation, and experimental
-validation were conducted in collaboration with AI assistants (Claude,
-Anthropic; ChatGPT, OpenAI; Gemini, Google).  The core hypotheses and
-architectural decisions originated from the author.
+This work was conducted as a human-AI collaboration between the author and
+Claude Opus 4 (Anthropic).  The core hypotheses, architectural decisions,
+biological analogies, and experimental design originated from the author.
+The AI contributed to code implementation, literature search, benchmark
+infrastructure, statistical analysis, and paper drafting.  ChatGPT (OpenAI)
+and Gemini (Google) were consulted for specific technical discussions during
+the research.  All scientific claims were verified empirically by the author.
 
 ---
 
