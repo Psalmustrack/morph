@@ -19,12 +19,14 @@ Graph L0 nodes, SQL rows, and RAG chunks in a single pass.
 | Metric | Value | Context |
 |--------|-------|---------|
 | **Boundary Precision** | **93.3%** | 13.8M gaps, 102K tables, 3 domains |
+| **Field Cell Accuracy** (PubTables-1M) | **72.3%** | 93,834 tables, zero vocabulary |
+| **Field Cell Accuracy** (FinTabNet.c) | **76.8%** | 9,289 tables, zero vocabulary |
 | **GriTS_Top** (PubTables-1M) | **79.9%** | N=10,000, max-jump |
 | **GriTS_Top** (FinTabNet.c) | **78.1%** | N=10,000, max-jump |
-| Cross-domain gap | **1.8 pp** | Stable generalisation |
+| Cross-domain gap (columns) | **0.7 pp** | Field equation, full scale |
 | HVAC catalogue health | **95.2%** | 6,238 pages, 5 brands |
 | Pages processed | **6,238** | 46 catalogues |
-| Processing speed | **~50 pages/s** | i7-10850H, no GPU |
+| Processing speed | **560 tab/s** | i7-10850H, no GPU |
 
 ### Direct Principle Test (Boundary Classification)
 
@@ -39,6 +41,24 @@ HVAC                 2           244        81.7%       84.6%     83.1%
 ```
 
 **102K tables, 13.8M gaps, 94 seconds.** Zero domain-specific parameters.
+
+### Field Equation Benchmark (Bond Accuracy)
+
+The field equation (`Φ = W · A / d^α`) assigns every NUMERIC particle
+to an entity (column) and a spec (row).  Bond accuracy measures whether
+these assignments match GT bounding boxes, via majority voting.
+
+```
+Dataset          Tables     Col %    Row %    Cell %   Coverage   Speed
+───────────────  ─────────  ───────  ───────  ───────  ─────────  ──────────
+PubTables-1M      93,834    83.9     81.6     72.3     99.9%      560 tab/s
+FinTabNet          9,289    83.2     93.0     76.8     100.0%     278 tab/s
+───────────────  ─────────  ───────  ───────  ───────  ─────────  ──────────
+Cross-domain gap             0.7pp            4.5pp
+```
+
+**103,123 tables in 200 seconds.** Zero training, zero GPU, zero vocabulary.
+With HVAC domain vocabulary → 95%+ cell accuracy (+20 pp).
 
 ### GriTS Benchmark (Grid Translation)
 
@@ -198,6 +218,12 @@ python -m morph.pipeline --batch-all
 ### Benchmarks
 
 ```bash
+# Field equation bond accuracy (PubTables-1M, all tables)
+python -m morph.bench.pubtables --n 0
+
+# Field equation bond accuracy (FinTabNet, cross-domain)
+python -m morph.bench.pubtables --dataset fintabnet --n 0
+
 # Direct principle test (all tables, all 3 datasets)
 python tests/test_principle.py --axis x --cores 4
 
@@ -376,11 +402,13 @@ specifiche per dominio**.
 | Metrica | Valore | Contesto |
 |---------|--------|----------|
 | **Precision confini** | **93.3%** | 13.8M gap, 102K tabelle, 3 domini |
+| **Cell accuracy campo** (PubTables-1M) | **72.3%** | 93.834 tabelle, zero vocabolario |
+| **Cell accuracy campo** (FinTabNet.c) | **76.8%** | 9.289 tabelle, zero vocabolario |
 | **GriTS_Top** (PubTables-1M) | **79.9%** | N=10K, max-jump |
 | **GriTS_Top** (FinTabNet.c) | **78.1%** | N=10K, max-jump |
-| Gap cross-dominio | **1.8 pp** | Generalizzazione stabile |
+| Gap cross-dominio (colonne) | **0.7 pp** | Campo, full scale |
 | Health cataloghi HVAC | **95.2%** | 6.238 pagine, 5 brand |
-| Velocita' | **~50 pag/s** | i7-10850H, nessuna GPU |
+| Velocita' | **560 tab/s** | i7-10850H, nessuna GPU |
 
 ### Architettura a 3 Layer
 
