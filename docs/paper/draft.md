@@ -180,20 +180,20 @@ Otsu requires binned data (histograms) and is O(L) in the number of
 intensity levels.
 
 **Jenks natural breaks** [14], equivalent to Fisher's optimal partitioning
-[28], minimises within-class variance for 1D data classification.  Jenks
+[15], minimises within-class variance for 1D data classification.  Jenks
 requires specifying the number of classes k in advance and is O(kn^2).
 
-**Hartigan's dip test** [29] detects bimodality by measuring the maximum
+**Hartigan's dip test** [28] detects bimodality by measuring the maximum
 deviation between the empirical CDF and the best-fitting unimodal
 distribution.  It returns a p-value (is this bimodal?) but not a threshold
 (where to cut).
 
-**The gap procedure** in bioinformatics [30] sorts all pairwise genetic
+**The gap procedure** in bioinformatics [29] sorts all pairwise genetic
 distances and looks for the largest absolute gap as a cluster boundary.
 It requires no parameters but uses absolute gaps rather than ratios,
 making it scale-dependent.
 
-**Ratio of consecutive spacings** in physics [31, 32].  Oganesyan and Huse
+**Ratio of consecutive spacings** in physics [30, 31].  Oganesyan and Huse
 introduced r_n = s_n / s_{n-1} (the ratio of consecutive energy level
 spacings) as a diagnostic for localisation transitions.  The distribution of
 all ratios characterises the system's phase.  This is the same mathematical
@@ -201,9 +201,9 @@ operation as our perceptual principle, but applied to unsorted sequential
 data for distributional analysis, not to sorted gaps for threshold finding.
 
 The **spacings** of order statistics — gaps between consecutive sorted
-values — are a classical topic in mathematical statistics [33].  The maximum
+values — are a classical topic in mathematical statistics [32].  The maximum
 spacing is a known test statistic for uniformity; the ratio of consecutive
-spacings has been studied theoretically [34] but not as a thresholding
+spacings has been studied theoretically [33] but not as a thresholding
 mechanism.
 
 Our perceptual principle (Section 3.5) belongs to this family.  It can be
@@ -218,7 +218,7 @@ the split point — does not appear in the prior literature as a named method.
 
 The field equation in Morph (Section 3.4) has the mathematical form of a
 **gravitational interaction model**: I_ij = k * M_i * M_j / d_ij^beta.
-This form originates in social physics with Stewart [11] and Zipf [35],
+This form originates in social physics with Stewart [11] and Zipf [34],
 and is widely used in geography, transportation, and urban planning.
 
 **Inverse distance weighting** (IDW) [12] uses the same kernel w = 1/d^alpha
@@ -226,7 +226,7 @@ for spatial interpolation in geostatistics.  The mathematical form of
 Morph's field equation is IDW with typed interaction weights.
 
 **Potential fields** in robotics use attractive and repulsive forces in
-continuous space for path planning [36].  The algebra is analogous but the
+continuous space for path planning [35].  The algebra is analogous but the
 domain (robot navigation vs. document parsing) is entirely different.
 
 No prior work applies gravitational or potential field models to document
@@ -237,22 +237,22 @@ type-pair affinity encoding document layout conventions.
 ### 2.6 Cell and Token Classification
 
 Rule-based classification of text tokens has deep roots in NLP.  The MUC
-conferences [37] defined named entity recognition using cascaded regex
+conferences [36] defined named entity recognition using cascaded regex
 patterns and gazetteers (vocabulary lists) for types such as DATE, MONEY,
-and PERCENT.  GATE/JAPE [38] formalised this as finite state transduction
-over annotations.  In table analysis, Hu et al. [39] use spatial and
-lexical criteria to classify headers; Fang et al. [40] systematically study
-features for header vs. data cell classification; Koci et al. [41] define
+and PERCENT.  GATE/JAPE [37] formalised this as finite state transduction
+over annotations.  In table analysis, Hu et al. [38] use spatial and
+lexical criteria to classify headers; Fang et al. [39] systematically study
+features for header vs. data cell classification; Koci et al. [40] define
 five cell roles (header, attribute, metadata, data, derived) using content
 and style features.
 
 **Spatial context for type refinement.**  The concept that a cell's role
-depends on its neighbours is well-established.  Abraham and Erwig [42]
+depends on its neighbours is well-established.  Abraham and Erwig [41]
 infer spreadsheet headers from spatial position — cells above or left of
 data cells are classified as headers.  This is the closest precedent to
-Morph's spatial promotion.  Pinto and McCallum [43] use CRFs to classify
+Morph's spatial promotion.  Pinto and McCallum [42] use CRFs to classify
 table lines into 12 categories with sequential dependencies.  Sato/Zhang
-et al. [44] demonstrate that neighbouring column context is essential for
+et al. [43] demonstrate that neighbouring column context is essential for
 semantic type detection, using topic modelling and CRFs.
 
 Morph's Layer 1 (Section 3.2) follows the well-established pattern of
@@ -300,7 +300,7 @@ cascade — first match wins:
 | 6 | TEXT | Default | Everything else |
 
 This follows the established pattern of cascaded regex and gazetteer
-matching for named entity recognition [37, 38], adapted to document
+matching for named entity recognition [36, 37], adapted to document
 particles.  Classification is deterministic from vocabulary sets and
 compiled regex patterns — no training, no model weights.
 
@@ -311,7 +311,7 @@ only NUMERIC, UNIT, and TEXT types are active.
 
 Particles may be **promoted** from TEXT to a structural type based on
 spatial context.  This extends the header inference approach of Abraham
-and Erwig [42] from spreadsheet regions to individual document particles.
+and Erwig [41] from spreadsheet regions to individual document particles.
 
 **Column detection.**  A vertical cluster of 3+ NUMERIC particles aligned
 on X (within adaptive tolerance theta_x) defines a detected column.
@@ -368,7 +368,7 @@ W(NUMERIC, TEXT)       = -0.1   (slight repulsion)
 No prior work in document analysis uses an explicit typed interaction
 matrix with spatial decay.  Graph-based approaches [23, 24, 25] learn
 type interactions implicitly through GNN message passing; CRF-based
-methods [43, 44] learn pairwise potentials from labelled data.  Morph's W
+methods [42, 43] learn pairwise potentials from labelled data.  Morph's W
 is handcrafted and fixed — more interpretable but less flexible.
 
 **Directional anisotropy A.**  The alignment factor encodes the universal
@@ -409,9 +409,9 @@ G = {g_1, ..., g_n} between consecutive particles:
 **Relation to prior work.**  This technique belongs to the family of
 bimodal thresholding methods that includes Otsu's method [13] (maximise
 inter-class variance on histograms), Jenks natural breaks [14] (minimise
-within-class variance for k classes), and Hartigan's dip test [29] (detect
+within-class variance for k classes), and Hartigan's dip test [28] (detect
 bimodality via CDF deviation).  The mathematical operation — ratio of
-consecutive values — appears in physics as the Oganesyan-Huse ratio [31]
+consecutive values — appears in physics as the Oganesyan-Huse ratio [30]
 for energy level spacing analysis, though applied to unsorted sequential
 data for a different purpose (phase transition detection, not threshold
 finding).
@@ -422,14 +422,14 @@ The specific combination in Morph differs from these predecessors:
 |--------|-------|-----------|--------|------------|
 | Otsu [13] | Histogram | Max inter-class variance | Threshold | O(L) |
 | Jenks [14] | Values | Min within-class variance | k thresholds | O(kn^2) |
-| Dip test [29] | Values | Max CDF deviation | p-value | O(n) |
-| Gap procedure [30] | Distances | Max absolute gap | Threshold | O(n log n) |
+| Dip test [28] | Values | Max CDF deviation | p-value | O(n) |
+| Gap procedure [29] | Distances | Max absolute gap | Threshold | O(n log n) |
 | **This work** | **Gaps** | **Max ratio of sorted gaps** | **Threshold** | **O(n log n)** |
 
 The key differences are: (a) ratios are scale-invariant, unlike absolute
-gaps [30]; (b) no binning required, unlike Otsu [13]; (c) no k parameter,
+gaps [29]; (b) no binning required, unlike Otsu [13]; (c) no k parameter,
 unlike Jenks [14]; (d) produces a threshold, not a p-value, unlike the
-dip test [29].
+dip test [28].
 
 **Intuition.**  Gaps in a table have a bimodal distribution: intra-cell
 gaps (small) and inter-cell gaps (large).  The point of maximum
@@ -467,11 +467,11 @@ types:
 | Dataset | Domain | Size | Annotation Level | Metric |
 |---------|--------|------|-----------------|--------|
 | PubTables-1M [1] | Scientific tables | 93,834 | Cell bounding boxes | GriTS, Boundary P |
-| FinTabNet.c [45] | Financial tables | 9,289 | Cell bounding boxes | GriTS, Boundary P |
-| CORD [46] | Digital receipts | 900 | Key-value entity links | Entity F1 |
-| SROIE [47] | Scanned receipts | 626 | 4 key fields | Per-field recall |
-| FUNSD [48] | Scanned forms | 199 | Entity linking | Link F1 |
-| DocBank [49] | Scientific papers | 500,000 | 13 token-level labels | Bond purity, coverage |
+| FinTabNet.c [4] | Financial tables | 9,289 | Cell bounding boxes | GriTS, Boundary P |
+| CORD [45] | Digital receipts | 900 | Key-value entity links | Entity F1 |
+| SROIE [46] | Scanned receipts | 626 | 4 key fields | Per-field recall |
+| FUNSD [47] | Scanned forms | 199 | Entity linking | Link F1 |
+| DocBank [48] | Scientific papers | 500,000 | 13 token-level labels | Bond purity, coverage |
 
 Additionally, we report results on an industrial dataset of 46 HVAC
 technical catalogues (6,238 pages, 5 brands) using a domain-specific
@@ -489,7 +489,7 @@ particles in a row, we classify it as boundary or non-boundary using the
 perceptual principle and compare with ground truth bounding boxes.  This
 is the most fundamental test of the principle itself.
 
-**GriTS (Grid Table Similarity)** [50].  The official PubTables-1M metric.
+**GriTS (Grid Table Similarity)** [49].  The official PubTables-1M metric.
 Uses 2D dynamic programming to align predicted and ground-truth cell grids.
 GriTS_Top measures structural topology; GriTS_Con measures content
 similarity.
@@ -518,6 +518,24 @@ k_y = 0.05, r_min = 1.5.  All constants are invariant across experiments.
 ---
 
 ## 5. Results
+
+Table 1 summarises all benchmark results in a single view.
+
+**Table 1.  Summary of results across six benchmarks + industrial dataset.**
+
+| Benchmark | Domain | Key Metric | Value | Speed |
+|-----------|--------|------------|-------|-------|
+| PubTables-1M | Scientific tables | Boundary Precision | **93.3%** | 560 tables/s |
+| PubTables-1M | Scientific tables | GriTS_Top | **79.9%** | 560 tables/s |
+| FinTabNet | Financial tables | GriTS_Top | **78.1%** | 560 tables/s |
+| CORD | Digital receipts | Spatial Precision | **89.6%** | 1,168 receipts/s |
+| SROIE | Scanned receipts | Total Recall | **74.2%** | 461 receipts/s |
+| FUNSD | Scanned forms | Spatial Precision | **73.0%** | 190 forms/s |
+| DocBank | Scientific papers | Bond Purity | **85.6%** | 72 pages/s |
+| HVAC (industrial) | Technical catalogues | Health | **95.2%** | 50 pages/s |
+
+Cross-domain GriTS gap (PubTables-1M vs FinTabNet): **1.8 pp**.
+All results with identical parameters, zero training, CPU only.
 
 ### 5.1 Table Structure Recognition
 
@@ -759,14 +777,14 @@ We state explicitly what components of Morph have prior art and what we
 consider novel:
 
 **Borrowed (with adaptation):**
-- Rule-based lexical typing: standard NER practice [37, 38], adapted to
+- Rule-based lexical typing: standard NER practice [36, 37], adapted to
   document particles
-- Header inference from spatial position: extends Abraham and Erwig [42]
+- Header inference from spatial position: extends Abraham and Erwig [41]
   from spreadsheet regions to individual tokens
 - Gravitational interaction form Phi = W/d^alpha: mathematical form from
   spatial interaction models [11, 12], adapted with typed interaction matrix
 - Bimodal thresholding: belongs to the family of Otsu [13], Jenks [14],
-  and the gap procedure [30], with a different mechanism
+  and the gap procedure [29], with a different mechanism
 
 **Novel (to our knowledge):**
 - Application of morphogenetic field principles to document structure
@@ -775,7 +793,7 @@ consider novel:
   particles (prior graph-based methods [23, 24, 25] learn interactions
   implicitly; our W is explicit and handcrafted)
 - The specific thresholding algorithm: max ratio of consecutive sorted gaps
-  as boundary detector (the ratio operation appears in physics [31, 32] but
+  as boundary detector (the ratio operation appears in physics [30, 31] but
   applied to unsorted data for distributional analysis, not threshold
   finding)
 - The three-layer architecture (intrinsic typing → spatial promotion →
@@ -843,6 +861,15 @@ We believe that this transparency — knowing exactly what works, what
 doesn't, what is borrowed, and what is new — is itself a contribution to
 a field increasingly dominated by high-parameter models whose failure
 modes are difficult to characterise.
+
+---
+
+## Acknowledgments
+
+The mathematical formalization, code implementation, and experimental
+validation were conducted in collaboration with AI assistants (Claude,
+Anthropic; ChatGPT, OpenAI; Gemini, Google).  The core hypotheses and
+architectural decisions originated from the author.
 
 ---
 
@@ -932,76 +959,73 @@ GFTE: Graph-based financial table extraction. *ICPR 2021*.
 [27] Tang, Z., et al. (2023). Unifying vision, text, and layout for
 universal document processing. *CVPR 2023*.
 
-[28] Fisher, W.D. (1958). On grouping for maximum homogeneity. *J. Am.
-Stat. Assoc.*, 53(284), 789-798.
-
-[29] Hartigan, J.A. & Hartigan, P.M. (1985). The dip test of unimodality.
+[28] Hartigan, J.A. & Hartigan, P.M. (1985). The dip test of unimodality.
 *Ann. Statist.*, 13(1), 70-84.
 
-[30] Vrbik, I., Stephens, D.A., Roger, M., & Bhatt, D.M. (2015). The gap
+[29] Vrbik, I., Stephens, D.A., Roger, M., & Bhatt, D.M. (2015). The gap
 procedure: for the identification of phylogenetic clusters in HIV-1
 sequence data. *BMC Bioinformatics*, 16, 355.
 
-[31] Oganesyan, V. & Huse, D.A. (2007). Localization of interacting
+[30] Oganesyan, V. & Huse, D.A. (2007). Localization of interacting
 fermions at high temperature. *Phys. Rev. B*, 75, 155111.
 
-[32] Atas, Y.Y., Bogomolny, E., Giraud, O., & Roux, G. (2013).
+[31] Atas, Y.Y., Bogomolny, E., Giraud, O., & Roux, G. (2013).
 Distribution of the ratio of consecutive level spacings in random matrix
 ensembles. *Phys. Rev. Lett.*, 110, 084101.
 
-[33] Pyke, R. (1965). Spacings. *J. R. Stat. Soc. B*, 27(3), 395-449.
+[32] Pyke, R. (1965). Spacings. *J. R. Stat. Soc. B*, 27(3), 395-449.
 
-[34] Greenwood, M. (1946). The statistical study of infectious diseases.
+[33] Greenwood, M. (1946). The statistical study of infectious diseases.
 *J. R. Stat. Soc. A*, 109(2), 85-110.
 
-[35] Zipf, G.K. (1946). The P1 P2/D hypothesis: on the intercity movement
+[34] Zipf, G.K. (1946). The P1 P2/D hypothesis: on the intercity movement
 of persons. *Am. Sociol. Rev.*, 11(6), 677-686.
 
-[36] Khatib, O. (1986). Real-time obstacle avoidance for manipulators and
+[35] Khatib, O. (1986). Real-time obstacle avoidance for manipulators and
 mobile robots. *Int. J. Robot. Res.*, 5(1), 90-98.
 
-[37] Grishman, R. & Sundheim, B. (1996). Message Understanding
+[36] Grishman, R. & Sundheim, B. (1996). Message Understanding
 Conference-6: A brief history. *Proc. COLING 1996*.
 
-[38] Cunningham, H., Maynard, D., Bontcheva, K., & Tablan, V. (2002).
+[37] Cunningham, H., Maynard, D., Bontcheva, K., & Tablan, V. (2002).
 GATE: An architecture for development of robust HLT applications. *Proc.
 ACL 2002*.
 
-[39] Hu, J., Kashi, R.S., Lopresti, D.P., & Wilfong, G.T. (2001). Table
+[38] Hu, J., Kashi, R.S., Lopresti, D.P., & Wilfong, G.T. (2001). Table
 structure recognition and its evaluation. *Proc. SPIE Document Recognition
 and Retrieval VIII*.
 
-[40] Fang, J., Mitra, P., Tang, Z., & Giles, C.L. (2012). Table header
+[39] Fang, J., Mitra, P., Tang, Z., & Giles, C.L. (2012). Table header
 detection and classification. *Proc. AAAI 2012*.
 
-[41] Koci, E., Thiele, M., Romero, O., & Lehner, W. (2018). Cell
+[40] Koci, E., Thiele, M., Romero, O., & Lehner, W. (2018). Cell
 classification for layout recognition in spreadsheets. *ADBIS 2018*.
 
-[42] Abraham, R. & Erwig, M. (2004). Header and unit inference for
+[41] Abraham, R. & Erwig, M. (2004). Header and unit inference for
 spreadsheets through spatial analyses. *Proc. IEEE Symposium on Visual
 Languages - Human Centric Computing*.
 
-[43] Pinto, D., McCallum, A., Wei, X., & Croft, W.B. (2003). Table
+[42] Pinto, D., McCallum, A., Wei, X., & Croft, W.B. (2003). Table
 extraction using conditional random fields. *Proc. SIGIR 2003*.
 
-[44] Zhang, D., Suhara, Y., Li, J., Hulsebos, M., Demiralp, C., & Tan,
+[43] Zhang, D., Suhara, Y., Li, J., Hulsebos, M., Demiralp, C., & Tan,
 W.-C. (2020). Sato: Contextual semantic type detection in tables. *Proc.
 VLDB*, 13(11), 1835-1848.
 
-[45] Zheng, X., et al. (2021). Global table extractor (GTE): A framework
+[44] Zheng, X., et al. (2021). Global table extractor (GTE): A framework
 for joint table identification and cell structure recognition. *WACV 2021*.
 
-[46] Park, S., et al. (2019). CORD: A consolidated receipt dataset for
+[45] Park, S., et al. (2019). CORD: A consolidated receipt dataset for
 post-OCR parsing. *Document Intelligence Workshop, NeurIPS 2019*.
 
-[47] Huang, Z., et al. (2019). ICDAR2019 competition on scanned receipt
+[46] Huang, Z., et al. (2019). ICDAR2019 competition on scanned receipt
 OCR and information extraction. *ICDAR 2019*.
 
-[48] Jaume, G., Ekenel, H.K., & Thiran, J.P. (2019). FUNSD: A dataset for
+[47] Jaume, G., Ekenel, H.K., & Thiran, J.P. (2019). FUNSD: A dataset for
 form understanding in noisy scanned documents. *ICDAR-OST 2019*.
 
-[49] Li, M., et al. (2020). DocBank: A benchmark dataset for document
+[48] Li, M., et al. (2020). DocBank: A benchmark dataset for document
 layout analysis. *COLING 2020*.
 
-[50] Smock, B., Pesala, R., & Abraham, R. (2022). GriTS: Grid table
+[49] Smock, B., Pesala, R., & Abraham, R. (2022). GriTS: Grid table
 similarity metric for table structure recognition. *arXiv:2203.12555*.
