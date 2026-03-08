@@ -27,6 +27,7 @@ Graph L0 nodes, SQL rows, and RAG chunks in a single pass.
 | **CORD Bond F1** (receipts) | **31.6%** | 800 receipts, zero vocabulary |
 | CORD Precision (campo puro) | **89.6%** | 800 receipts, translation cost 0.1pp |
 | **FUNSD Bond F1** (forms) | **21.1%** | 149 forms, 59% links unreachable (no NUMERIC) |
+| **SROIE Total Recall** (scanned receipts) | **74.2%** | 626 receipts, noisy OCR coordinates |
 | HVAC catalogue health | **95.2%** | 6,238 pages, 5 brands |
 | Pages processed | **6,238** | 46 catalogues |
 | Processing speed | **560 tab/s** | i7-10850H, no GPU |
@@ -143,6 +144,44 @@ bonds between text entities.  Extending W is the next architectural step —
 it would unlock both FUNSD (form understanding) and CORD menu items.
 
 **Speed**: 190 forms/s on CPU.
+
+### SROIE Benchmark (Scanned Receipt Key Extraction)
+
+SROIE (ICDAR 2019 Scanned Receipts) contains 626 scanned receipt images with
+word-level OCR bounding boxes and 4 key GT fields: company, address, date, total.
+Unlike CORD (digital receipts), SROIE uses real scanned images with noisy OCR
+coordinates (±2-5px jitter).  This tests whether the field equation degrades
+with coordinate noise.
+
+**Metric**: Per-field recall (presence of bonded GT words).
+
+```
+Campo       Present   Absent   NoMatch   Reachable   Recall
+──────────  ────────  ───────  ────────  ──────────  ───────
+company          0      626      598           0      0.0%
+date           118      508        3         203     18.8%
+address          1      624      559           1      0.2%
+total          464      161       35         503     74.2%
+```
+
+**Key finding: total recall 74.2% > CORD 61.0%** — the field is robust to
+OCR noise.  Scanned coordinates do not degrade the spatial principle.
+
+**Per-field analysis**:
+- `total`: 74.2% — best field, NUMERIC matching is noise-tolerant
+- `date`: 18.8% — dates contain digits, but partial matching limits recall
+- `company` / `address`: 0.0% / 0.2% — pure TEXT fields, `W(TEXT, TEXT) = 0`
+- 598/559 NoMatch — OCR noise breaks token-level GT matching
+
+**Macro F1**: 14.6% (P=10.6%, R=23.3%).  Low because 3 of 4 fields are TEXT-only.
+
+**Speed**: 461 receipts/s on CPU (2.3x faster than CORD — fewer particles/receipt).
+
+**Type distribution**: 48.4% TEXT, 29.5% NUMERIC, 18.0% SPEC_LABEL, 2.5% SECTION.
+
+**Comparison with CORD**: Same receipt domain, different input quality:
+- SROIE total recall (74.2%) > CORD total recall (61.0%) → +13.2 pp
+- Both hit the same structural wall: TEXT fields invisible to the field
 
 ---
 
@@ -320,6 +359,12 @@ python -m morph.bench.funsd --split test
 # FUNSD form entity linking (train split, 149 forms)
 python -m morph.bench.funsd --split train
 
+# SROIE scanned receipt benchmark (all 626 receipts)
+python -m morph.bench.sroie
+
+# SROIE with verbose output
+python -m morph.bench.sroie --n 100 --verbose
+
 # Regression tests (65 tests)
 pytest tests/ -v
 ```
@@ -364,6 +409,7 @@ morph/
 │   ├── boundaries.py     # Direct principle test (gap classification)
 │   ├── cord.py           # CORD receipt benchmark (F1, 4 levels)
 │   ├── funsd.py          # FUNSD form entity linking (F1, 2 levels)
+│   ├── sroie.py          # SROIE scanned receipt benchmark (noise tolerance)
 │   └── adaptive_k.py     # Max-ratio-jump experiment
 │
 └── docs/                 # Extended documentation
@@ -444,6 +490,7 @@ morph/
 - FinTabNet.c-Structure dataset
 - CORD dataset (receipt JSON annotations)
 - FUNSD dataset (form entity linking annotations)
+- SROIE dataset (scanned receipt OCR boxes + key JSON)
 
 **Optional (pipeline integration):**
 - `knowledge` module (header normalisation, active learning)
@@ -495,6 +542,7 @@ specifiche per dominio**.
 | **CORD Bond F1** (ricevute) | **31.6%** | 800 ricevute, zero vocabolario |
 | CORD Precision (campo puro) | **89.6%** | 800 ricevute, costo traduzione 0.1pp |
 | **FUNSD Bond F1** (form) | **21.1%** | 149 form, 59% link irraggiungibili (no NUMERIC) |
+| **SROIE Total Recall** (ricevute scansionate) | **74.2%** | 626 ricevute, OCR rumoroso |
 | Health cataloghi HVAC | **95.2%** | 6.238 pagine, 5 brand |
 | Velocita' | **560 tab/s** | i7-10850H, nessuna GPU |
 
