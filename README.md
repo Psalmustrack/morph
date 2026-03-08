@@ -24,6 +24,8 @@ Graph L0 nodes, SQL rows, and RAG chunks in a single pass.
 | **GriTS_Top** (PubTables-1M) | **79.9%** | N=10,000, max-jump |
 | **GriTS_Top** (FinTabNet.c) | **78.1%** | N=10,000, max-jump |
 | Cross-domain gap (columns) | **0.7 pp** | Field equation, full scale |
+| **CORD Bond F1** (receipts) | **31.6%** | 800 receipts, zero vocabulary |
+| CORD Precision (campo puro) | **89.6%** | 800 receipts, translation cost 0.1pp |
 | HVAC catalogue health | **95.2%** | 6,238 pages, 5 brands |
 | Pages processed | **6,238** | 46 catalogues |
 | Processing speed | **560 tab/s** | i7-10850H, no GPU |
@@ -74,6 +76,39 @@ Morph (max-jump)       79.9%           78.1%         1.8 pp
 
 The 13.4 pp gap between Boundary Precision (93.3%) and GriTS (79.9%)
 is entirely due to the grid translator, not the underlying principle.
+
+### CORD Benchmark (Receipt Key-Value Extraction)
+
+CORD (Consolidated Receipt Dataset) contains 1,000 Indonesian receipts with
+word-level annotations.  Each receipt has key→value bonds (e.g. "TOTAL" → "31.000").
+Unlike tables, receipts are vertical lists — this tests whether the field
+equation generalises beyond grid structures.
+
+**Metric**: Entity-level F1 with 4 levels of strictness.
+
+```
+Level               Split    Prec     Recall   F1       Receipts
+──────────────────  ───────  ───────  ───────  ───────  ────────
+Spatial (campo)     test     87.7%    19.0%    31.3%    100
+Spatial (campo)     train    89.6%    19.4%    31.8%    800
+Bond (key match)    test     87.5%    18.6%    30.7%    100
+Bond (key match)    train    89.5%    19.2%    31.6%    800
+```
+
+**Translation cost**: 0.1–0.5 pp (spatial → bond).  On receipts the field
+output maps directly to F1 with essentially zero translation loss.
+
+**Per-category recall** (train, 800 receipts):
+- `total`: 61.0% — the field bonds total/cash/change to their values
+- `sub_total`: 59.6% — subtotal, tax, discount bonds work
+- `menu`: 0.4% — menu items (product → price) are invisible to the field
+
+**Speed**: 1,168 receipts/s on CPU.
+
+The bottleneck is clear: menu items are TEXT→NUMERIC pairs where the product
+name has no SPEC_LABEL type.  The field ignores them because `W(TEXT, NUMERIC) = 0`.
+This weakness directly maps to FUNSD (the next benchmark in the cascade),
+where extending W to TEXT↔TEXT bonds is the central challenge.
 
 ---
 
@@ -239,6 +274,12 @@ python -m morph.bench.grits --dataset fintabnet --n 1000 --cores 4
 # Max-jump vs fixed-k comparison
 python -m morph.bench.adaptive_k --n 1000 --cores 4
 
+# CORD receipt benchmark (test split, 100 receipts)
+python -m morph.bench.cord --split test
+
+# CORD receipt benchmark (train split, 800 receipts)
+python -m morph.bench.cord --split train
+
 # Regression tests (65 tests)
 pytest tests/ -v
 ```
@@ -281,6 +322,7 @@ morph/
 │   ├── grits.py          # GriTS metric (Microsoft, MIT)
 │   ├── grid.py           # Grid translator (particles → rows/columns)
 │   ├── boundaries.py     # Direct principle test (gap classification)
+│   ├── cord.py           # CORD receipt benchmark (F1, 4 levels)
 │   └── adaptive_k.py     # Max-ratio-jump experiment
 │
 └── docs/                 # Extended documentation
@@ -359,6 +401,7 @@ morph/
 - numpy
 - PubTables-1M dataset (words + XML annotations)
 - FinTabNet.c-Structure dataset
+- CORD dataset (receipt JSON annotations)
 
 **Optional (pipeline integration):**
 - `knowledge` module (header normalisation, active learning)
@@ -407,6 +450,8 @@ specifiche per dominio**.
 | **GriTS_Top** (PubTables-1M) | **79.9%** | N=10K, max-jump |
 | **GriTS_Top** (FinTabNet.c) | **78.1%** | N=10K, max-jump |
 | Gap cross-dominio (colonne) | **0.7 pp** | Campo, full scale |
+| **CORD Bond F1** (ricevute) | **31.6%** | 800 ricevute, zero vocabolario |
+| CORD Precision (campo puro) | **89.6%** | 800 ricevute, costo traduzione 0.1pp |
 | Health cataloghi HVAC | **95.2%** | 6.238 pagine, 5 brand |
 | Velocita' | **560 tab/s** | i7-10850H, nessuna GPU |
 
