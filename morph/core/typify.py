@@ -399,7 +399,13 @@ def extract_particles(page,
 
     # Layer 1b: spatial sensing promotes TEXT → structural types
     from morph.core.sense import sense_page
-    result = sense_page(particles)
+
+    # v2.0 Phase 6: Extract drawings for hybrid boundary detection
+    drawings = None
+    if hasattr(page, 'extract_drawings'):
+        drawings = page.extract_drawings()
+
+    result = sense_page(particles, drawings=drawings)
     particles = result['particles']
 
     return particles

@@ -296,10 +296,128 @@ def _group_into_rows(particles: list[dict],
 
 # ─── Sensing: columns ────────────────────────────────────────────────
 
+# ─── Drawing-based boundaries (v2.0 Phase 6) ──────────────────────
+
+def _extract_vertical_lines(drawings: list[dict],
+                             min_height: float = 5) -> list[float]:
+    """Extract vertical line X positions from page drawings.
+
+    Parses stroke/fill paths and extracts vertical line segments.
+    A vertical line has x1≈x2 with significant |y2-y1|.
+
+    Args:
+        drawings: Output from page.extract_drawings()
+        min_height: Minimum line height to consider (px)
+
+    Returns:
+        Sorted list of X positions (average of x1, x2)
+    """
+    if not drawings:
+        return []
+
+    vertical_xs = []
+
+    for d in drawings:
+        # Process stroke/fill paths
+        if d.get('type') not in ('s', 'f', 'fs'):
+            continue
+
+        items = d.get('items', [])
+        for item in items:
+            # item format: ('l', Point(x1, y1), Point(x2, y2))
+            if not isinstance(item, tuple) or len(item) < 3:
+                continue
+
+            cmd = item[0]
+            if cmd != 'l':  # line segments only
+                continue
+
+            # Extract points (handle both Point objects and tuples)
+            p1 = item[1]
+            p2 = item[2]
+
+            # Get coordinates (Point objects have .x, .y attributes)
+            x1 = p1.x if hasattr(p1, 'x') else p1[0]
+            y1 = p1.y if hasattr(p1, 'y') else p1[1]
+            x2 = p2.x if hasattr(p2, 'x') else p2[0]
+            y2 = p2.y if hasattr(p2, 'y') else p2[1]
+
+            # Check if vertical
+            dx = abs(x2 - x1)
+            dy = abs(y2 - y1)
+
+            if dy >= min_height and dx < 3:  # vertical tolerance 3px
+                x_mid = (x1 + x2) / 2
+                vertical_xs.append(x_mid)
+
+    return sorted(set(vertical_xs))  # unique, sorted
+
+
+def detect_columns_from_drawings(particles: list[dict],
+                                   drawings: list[dict]) -> list[dict]:
+    """Detect columns using vertical lines from drawings (bordered tables).
+    
+    Uses exact boundaries from vector drawings instead of geometric clustering.
+    Each vertical line defines a column boundary. Particles are assigned to
+    columns based on which boundaries they fall between.
+    
+    Args:
+        particles: All particles on the page
+        drawings: Output from page.extract_drawings()
+    
+    Returns:
+        Sorted list of column dicts: {'x', 'y_min', 'y_max', 'count'}
+        Empty if no vertical lines found
+    """
+    vertical_xs = _extract_vertical_lines(drawings)
+    if len(vertical_xs) < 2:
+        return []  # need at least 2 lines to define 1 column
+    
+    # Define column ranges from boundaries
+    # vertical_xs = [x1, x2, x3, x4] → columns: [x1-x2], [x2-x3], [x3-x4]
+    structured_types = {'NUMERIC', 'SPEC_LABEL', 'MODEL', 'MODEL_CODE',
+                        'UNIT', 'SECTION', 'SIZE_HEADER', 'KW_HEADER'}
+    structured = [p for p in particles if p['type'] in structured_types]
+    
+    if not structured:
+        return []
+    
+    columns = []
+    for i in range(len(vertical_xs) - 1):
+        x_left = vertical_xs[i]
+        x_right = vertical_xs[i + 1]
+        x_mid = (x_left + x_right) / 2
+        
+        # Find particles in this column
+        col_particles = [
+            p for p in structured
+            if x_left <= p['x'] <= x_right
+        ]
+        
+        if len(col_particles) >= 3:  # minimum column size
+            ys = [p['y0'] for p in col_particles]
+            distinct_ys = len(set(round(y) for y in ys))
+            
+            if distinct_ys >= 2:  # at least 2 rows
+                columns.append({
+                    'x': x_mid,
+                    'y_min': min(ys),
+                    'y_max': max(ys),
+                    'count': len(col_particles),
+                })
+    
+    return sorted(columns, key=lambda c: c['x'])
+
+
 def detect_columns(particles: list[dict],
                    min_size: int = 3,
-                   x_threshold: float = 15) -> list[dict]:
+                   x_threshold: float = 15,
+                   drawings: list[dict] | None = None) -> list[dict]:
     """Detect vertical columns of aligned structured particles.
+    
+    **v2.0 Phase 6: Hybrid boundary detection**
+    - If drawings provided with vertical lines → use exact boundaries (bordered tables)
+    - Otherwise → fallback to geometric clustering (borderless tables)
 
     A column requires:
         - 3+ structured particles with similar X (within x_threshold)
@@ -315,10 +433,18 @@ def detect_columns(particles: list[dict],
         particles: All particles on the page.
         min_size: Minimum particles per column.
         x_threshold: Max X distance for same column (px).
+        drawings: Optional drawings from page.extract_drawings() (v2.0).
 
     Returns:
         Sorted list of column dicts: ``{'x', 'y_min', 'y_max', 'count'}``.
     """
+    # v2.0: Try drawing-based detection first (exact boundaries)
+    if drawings:
+        cols_from_drawings = detect_columns_from_drawings(particles, drawings)
+        if cols_from_drawings:
+            return cols_from_drawings
+    
+    # Fallback: geometric clustering (v0.1 behavior)
     structured_types = {'NUMERIC', 'SPEC_LABEL', 'MODEL', 'MODEL_CODE',
                         'UNIT', 'SECTION', 'SIZE_HEADER', 'KW_HEADER'}
     structured = [p for p in particles if p['type'] in structured_types]
@@ -648,15 +774,18 @@ def proofread(particles: list[dict],
 
 # ─── Orchestrator ────────────────────────────────────────────────────
 
-def sense_page(particles: list[dict]) -> dict:
+def sense_page(particles: list[dict],
+               drawings: list[dict] | None = None) -> dict:
     """Run complete spatial sensing on a page.
+    
+    **v2.0 Phase 6:** Accepts optional drawings for hybrid boundary detection.
 
     This is the main entry point for Layer 1b. Orchestrates all
     sensing stages in order, modifying particles in-place.
 
     Pipeline::
 
-        1. detect_columns()          → structural skeleton
+        1. detect_columns()          → structural skeleton (hybrid: drawings or geometric)
         2. promote_column_headers()  → TEXT above columns → MODEL
         3. detect_row_label_column() → TEXT left of columns → SPEC_LABEL
         4. promote_spec_labels()     → TEXT left of NUMERIC → SPEC_LABEL
@@ -665,6 +794,7 @@ def sense_page(particles: list[dict]) -> dict:
 
     Args:
         particles: Typed particles from Layer 1.
+        drawings: Optional drawings from page.extract_drawings() (v2.0).
 
     Returns:
         Dict with keys:
@@ -681,8 +811,8 @@ def sense_page(particles: list[dict]) -> dict:
                 'columns': 0, 'headers': 0, 'specs': 0,
                 'sections': 0, 'proofread': 0}
 
-    # 1. Structural skeleton
-    columns = detect_columns(particles)
+    # 1. Structural skeleton (v2.0: hybrid detection)
+    columns = detect_columns(particles, drawings=drawings)
 
     # 2. Column headers (apical text → MODEL)
     promoted_headers = promote_column_headers(particles, columns)
