@@ -6,7 +6,7 @@ Main entry point: sense_page() orchestrates all sensing stages.
 """
 
 from .columns import detect_columns
-from .rows import detect_row_label_column
+from .rows import detect_row_label_column, assign_row_ids, promote_orphan_sections
 from .promote import (
     promote_column_headers,
     promote_spec_labels,
@@ -70,6 +70,13 @@ def sense_page(particles: list[dict],
     # 5. DNA proofreading — demote incoherent particles
     demoted = proofread(particles, columns=columns)
 
+    # 6. Row segmentation — assign row_id to each particle
+    row_info = assign_row_ids(particles)
+
+    # 7. Promote orphan sections — SECTION → SPEC_LABEL in rows with
+    #    NUMERICs but no spec (prevents orphan numerics)
+    promoted_orphans = promote_orphan_sections(particles)
+
     return {
         'particles': particles,
         'columns': len(columns),
@@ -78,4 +85,6 @@ def sense_page(particles: list[dict],
         'specs': len(promoted_specs),
         'sections': len(promoted_sections),
         'proofread': len(demoted),
+        'rows': len(row_info),
+        'orphan_promotions': len(promoted_orphans),
     }

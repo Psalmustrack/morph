@@ -116,7 +116,9 @@ def expand_merged_cells(data: Dict[str, Dict[str, dict]],
     """
     Expand merged cells by detecting cell spans and copying values.
 
-    This is the main entry point for cell spanning detection.
+    Only fills EMPTY cells — never overwrites values already assigned
+    by the Phi field. A spec row is a merge candidate only when fewer
+    entities have a value than the total number of entities.
 
     Args:
         data: Result from extract_page - {entity: {spec: {value, unit, x, y, ...}}}
@@ -132,75 +134,68 @@ def expand_merged_cells(data: Dict[str, Dict[str, dict]],
     # Step 1: Detect column positions
     entity_positions = detect_column_positions(particles, entities)
     if len(entity_positions) < 2:
-        return data  # Not enough columns to detect merges
+        return data
 
     # Create ordered list of (entity, x_position)
     entity_x_list = [(entity, entity_positions[entity])
                      for entity in entities
                      if entity in entity_positions]
-    entity_x_list.sort(key=lambda x: x[1])  # Sort by X position
+    entity_x_list.sort(key=lambda x: x[1])
 
     column_positions = [x for _, x in entity_x_list]
     entity_order = [entity for entity, _ in entity_x_list]
+    n_entities = len(entity_order)
 
-    # Step 2: Analyze each spec row for merged cells
+    # Step 2: Deep-copy existing data (preserve all Phi assignments)
     expanded_data = {}
+    for entity in data:
+        expanded_data[entity] = dict(data[entity])
 
     # Collect all specs
     all_specs = set()
     for entity_data in data.values():
         all_specs.update(entity_data.keys())
 
-    # For each spec, check if there are merged cells
+    # Step 3: For each spec, expand ONLY if there are empty cells
     for spec in all_specs:
-        # Collect values and their X positions for this spec
-        spec_values = []
-        for entity in entities:
-            if entity in data and spec in data[entity]:
-                value_info = data[entity][spec]
-                spec_values.append({
-                    'entity': entity,
-                    'value': value_info.get('value'),
-                    'x': value_info.get('x', 0),
-                    'unit': value_info.get('unit'),
-                    'full_info': value_info
-                })
+        # Count how many entities already have this spec
+        entities_with_value = [e for e in entity_order if e in data and spec in data[e]]
+        entities_without_value = [e for e in entity_order if e not in entities_with_value]
 
-        # Skip if no values for this spec
-        if not spec_values:
+        # All entities covered → nothing to expand
+        if not entities_without_value:
             continue
 
-        # Detect cell spans for each value
-        entity_value_map = {}  # Will store final entity -> value mapping
+        # Only 1 value for many entities → likely a merged cell
+        if len(entities_with_value) == 0:
+            continue
 
-        for value_entry in spec_values:
-            # Use CENTER of bounding box for accurate span detection
-            # When text is centered in merged cells, the center is key!
-            full_info = value_entry['full_info']
-            x0 = full_info.get('x0', full_info.get('x', 0))
-            x1 = full_info.get('x1', full_info.get('x', 0))
+        # For each existing value, calculate its span and fill empty cells
+        for source_entity in entities_with_value:
+            value_info = data[source_entity][spec]
 
-            # Calculate center: (x0 + x1) / 2
+            # Calculate center of value's bounding box
+            x0 = value_info.get('x0', value_info.get('x', 0))
+            x1 = value_info.get('x1', value_info.get('x', 0))
+
             if x1 > x0:
                 value_center = (x0 + x1) / 2
             else:
-                # Fallback if x0/x1 not available
-                value_center = full_info.get('x', 0)
+                value_center = value_info.get('x', 0)
 
-            # Calculate span based on CENTER position
+            # Calculate span
             start_idx, end_idx = calculate_cell_span(value_center, column_positions)
 
-            # Assign value to all entities in span
+            # Fill ONLY empty cells in the span
             for idx in range(start_idx, end_idx + 1):
-                if idx < len(entity_order):
+                if idx < n_entities:
                     target_entity = entity_order[idx]
-                    entity_value_map[target_entity] = value_entry['full_info']
-
-        # Update expanded_data with the span-corrected values
-        for entity, value_info in entity_value_map.items():
-            if entity not in expanded_data:
-                expanded_data[entity] = {}
-            expanded_data[entity][spec] = value_info
+                    # Never overwrite existing values!
+                    if target_entity in entities_without_value:
+                        if target_entity not in expanded_data:
+                            expanded_data[target_entity] = {}
+                        if spec not in expanded_data[target_entity]:
+                            expanded_data[target_entity][spec] = value_info
 
     return expanded_data
 

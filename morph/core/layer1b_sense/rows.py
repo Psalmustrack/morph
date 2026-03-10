@@ -97,6 +97,86 @@ def _group_into_rows(particles: list[dict],
     return rows
 
 
+def assign_row_ids(particles: list[dict]) -> list[dict]:
+    """Assign ``row_id`` to each particle based on Y-proximity clustering.
+
+    Each particle gets a ``row_id`` integer (0 = topmost row).
+    Particles in the same visual row share the same ``row_id``.
+
+    This is the public API for row segmentation. Called by
+    :func:`sense_page` as the last step in Layer 1b.
+
+    Args:
+        particles: All particles on the page (modified in-place).
+
+    Returns:
+        List of row descriptors: ``{row_id, y_center, y_min, y_max}``.
+    """
+    rows = _group_into_rows(particles)
+
+    row_info = []
+    for row_id, row_particles in enumerate(rows):
+        y_values = [p.get('y0', p.get('y', 0)) for p in row_particles]
+        y_center = sum(y_values) / len(y_values)
+        y_min = min(y_values)
+        y_max = max(y_values)
+
+        for p in row_particles:
+            p['row_id'] = row_id
+
+        row_info.append({
+            'row_id': row_id,
+            'y_center': y_center,
+            'y_min': y_min,
+            'y_max': y_max,
+        })
+
+    return row_info
+
+
+def promote_orphan_sections(particles: list[dict]) -> list[dict]:
+    """Promote SECTION → SPEC_LABEL in rows that have NUMERICs but no spec.
+
+    When a row contains NUMERIC particles but no SPEC_LABEL, the
+    numerics become orphans (no spec to bind to). If the row has
+    a SECTION particle, promote it to SPEC_LABEL so it can act
+    as the row header.
+
+    Example: "N° di unità collegabili (min - max)" is classified
+    as SECTION but has NUMERIC values 1-5, 1-6 in the same row.
+
+    Requires ``row_id`` to be assigned first via :func:`assign_row_ids`.
+
+    Args:
+        particles: Particles with ``row_id`` assigned (modified in-place).
+
+    Returns:
+        List of promoted particles.
+    """
+    # Group by row_id
+    rows = {}
+    for p in particles:
+        rid = p.get('row_id')
+        if rid is not None:
+            rows.setdefault(rid, []).append(p)
+
+    promoted = []
+    for rid, row_ps in rows.items():
+        has_numeric = any(p['type'] == 'NUMERIC' for p in row_ps)
+        has_spec = any(p['type'] == 'SPEC_LABEL' for p in row_ps)
+
+        if has_numeric and not has_spec:
+            # Look for SECTION to promote
+            for p in row_ps:
+                if p['type'] == 'SECTION':
+                    p['type'] = 'SPEC_LABEL'
+                    p['_sensed'] = 'orphan_section_promoted'
+                    promoted.append(p)
+                    break  # One spec per row
+
+    return promoted
+
+
 def detect_row_label_column(particles, columns, x_max_gap=50):
     """Detect a row-label column to the left of the first structural column.
 

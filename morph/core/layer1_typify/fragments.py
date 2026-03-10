@@ -5,6 +5,7 @@ morph.core.layer1_typify.fragments — Fragment Reassembly
 Merge fragmented glyphs that were split by PDF encoding.
 """
 
+from typing import Optional
 from .classify import typify_word
 
 
@@ -12,7 +13,8 @@ def _merge_fragments(particles: list[dict],
                      model_patterns: list = None,
                      size_patterns: list = None,
                      y_tolerance: float = 2,
-                     x_gap_max: float = 8) -> list[dict]:
+                     x_gap_max: float = 8,
+                     domain_config: Optional['DomainConfig'] = None) -> list[dict]:
     """Reassemble fragmented glyphs on the same line.
 
     Some PDFs encode "6,5 kW" as 4 separate glyphs: "6", ",", "5", "kW".
@@ -23,10 +25,11 @@ def _merge_fragments(particles: list[dict],
 
     Args:
         particles: List of typed particles.
-        model_patterns: Brand-specific model patterns for re-typing.
-        size_patterns: Brand-specific size patterns for re-typing.
+        model_patterns: (DEPRECATED) Use domain_config instead.
+        size_patterns: (DEPRECATED) Use domain_config instead.
         y_tolerance: Max Y gap to consider same row (px).
         x_gap_max: Max X gap between adjacent fragments (px).
+        domain_config: DomainConfig instance (v2.1+).
 
     Returns:
         Particle list with fragments merged where beneficial.
@@ -63,13 +66,19 @@ def _merge_fragments(particles: list[dict],
             if j > i:
                 frag_texts = [row[k]['text'] for k in range(i, j + 1)]
                 combined = ''.join(frag_texts)
-                new_type = typify_word(combined, model_patterns, size_patterns)
+
+                # Retype merged fragment
+                if domain_config is not None:
+                    new_type = typify_word(combined, domain_config=domain_config)
+                else:
+                    # Legacy mode
+                    new_type = typify_word(combined, model_patterns, size_patterns)
 
                 # Only merge if resulting type is "useful" (not generic TEXT)
                 if new_type != 'TEXT':
                     y1_max = max(row[k]['y1'] for k in range(i, j + 1))
                     merged.append({
-                        'text': combined[:80],
+                        'text': combined,  # Full text (no truncation)
                         'x': (row[i]['x0'] + row[j]['x1']) / 2,
                         'y': (row[i]['y0'] + y1_max) / 2,
                         'y0': row[i]['y0'],

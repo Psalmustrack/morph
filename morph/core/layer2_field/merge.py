@@ -63,7 +63,7 @@ def merge_multiline_specs(particles: list[dict],
             continue
         group.sort(key=lambda p: (p['y'], p['x']))
         merged = {
-            'text': ' '.join(p['text'] for p in group)[:80],
+            'text': ' '.join(p['text'] for p in group),  # Full text (no truncation)
             'x': min(p['x'] for p in group),
             'y': sum(p['y'] for p in group) / len(group),
             'x0': min(p.get('x0', p['x']) for p in group),
@@ -73,6 +73,9 @@ def merge_multiline_specs(particles: list[dict],
             'type': 'SPEC_LABEL',
             'size': max(p.get('size', 0) for p in group),
         }
+        # Preserve row_id from first component (topmost)
+        if 'row_id' in group[0]:
+            merged['row_id'] = group[0]['row_id']
         new_particles.append(merged)
         for p in group:
             merged_ids.add(id(p))
