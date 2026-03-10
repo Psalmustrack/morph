@@ -1,4 +1,14 @@
 """
+╔════════════════════════════════════════════════════════════════════╗
+║  ⚠️  DEPRECATED v2.0 - DO NOT EDIT - BACKWARD COMPATIBILITY ONLY  ║
+║                                                                    ║
+║  This file is FROZEN for backward compatibility.                  ║
+║  All development happens in: morph/core/layer2_field/             ║
+║                                                                    ║
+║  Use: from morph.core.layer2_field import ...                     ║
+║  Not: from morph.core.field import ...                            ║
+╚════════════════════════════════════════════════════════════════════╝
+
 morph.core.field — Layer 2: Morphogenetic Field Theory (Tissue Formation)
 =========================================================================
 

@@ -1,4 +1,14 @@
 """
+╔════════════════════════════════════════════════════════════════════╗
+║  ⚠️  DEPRECATED v2.0 - DO NOT EDIT - BACKWARD COMPATIBILITY ONLY  ║
+║                                                                    ║
+║  This file is FROZEN for backward compatibility.                  ║
+║  All development happens in: morph/core/layer1b_sense/            ║
+║                                                                    ║
+║  Use: from morph.core.layer1b_sense import ...                    ║
+║  Not: from morph.core.sense import ...                            ║
+╚════════════════════════════════════════════════════════════════════╝
+
 morph.core.sense — Layer 1b: Spatial Sensing (Cellular Differentiation)
 =======================================================================
 

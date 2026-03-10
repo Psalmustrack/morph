@@ -1,4 +1,14 @@
 """
+╔════════════════════════════════════════════════════════════════════╗
+║  ⚠️  DEPRECATED v2.0 - DO NOT EDIT - BACKWARD COMPATIBILITY ONLY  ║
+║                                                                    ║
+║  This file is FROZEN for backward compatibility.                  ║
+║  All development happens in: morph/core/layer1_typify/            ║
+║                                                                    ║
+║  Use: from morph.core.layer1_typify import ...                    ║
+║  Not: from morph.core.typify import ...                           ║
+╚════════════════════════════════════════════════════════════════════╝
+
 morph.core.typify — Layer 1: Particle Type Classification (Gene Expression)
 ============================================================================
 
