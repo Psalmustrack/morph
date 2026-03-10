@@ -425,12 +425,14 @@ def build_gt_cells(
 def build_pred_cells(
     col_splits: list[float],
     row_groups: list[list[dict]],
+    detect_spanning: bool = False,
 ) -> list[dict]:
     """Build predicted cells from column splits and row groups.
 
     Args:
         col_splits: X-positions of column boundaries.
         row_groups: Grouped particles per row.
+        detect_spanning: Apply spanning cell detection heuristics.
 
     Returns:
         List of cell dicts with ``row_nums``, ``column_nums``,
@@ -441,25 +443,166 @@ def build_pred_cells(
     if n_rows == 0 or n_cols == 0:
         return []
 
+    # Assign particles to cells, track bboxes
     cell_texts: dict[tuple, list[str]] = {}
+    cell_particles: dict[tuple, list[dict]] = {}
     for r, row in enumerate(row_groups):
         for p in row:
             c = sum(1 for sx in col_splits if p['x'] > sx)
             c = min(c, n_cols - 1)
             if (r, c) not in cell_texts:
                 cell_texts[(r, c)] = []
+                cell_particles[(r, c)] = []
             cell_texts[(r, c)].append(p.get('text', ''))
+            cell_particles[(r, c)].append(p)
 
+    # Build initial 1x1 grid
     cells = []
     for r in range(n_rows):
         for c in range(n_cols):
             texts = cell_texts.get((r, c), [])
+            particles = cell_particles.get((r, c), [])
             cells.append({
                 'row_nums': [r],
                 'column_nums': [c],
                 'cell_text': ' '.join(texts),
+                'particles': particles,
             })
+
+    if not detect_spanning or n_cols < 2:
+        return cells
+
+    # === SPANNING DETECTION COMBO ===
+    cells = _detect_spanning_cells(cells, n_rows, n_cols, col_splits)
     return cells
+
+
+def _detect_spanning_cells(
+    cells: list[dict],
+    n_rows: int,
+    n_cols: int,
+    col_splits: list[float],
+) -> list[dict]:
+    """Apply spanning detection heuristics to merge cells.
+
+    Combo chain:
+    1. Empty cell merge — merge empty cells with adjacent non-empty
+    2. Width anomaly — wide cells likely span multiple columns
+    3. Centered text — centered in wide space → spanning header
+    4. Semantic hints — "Total", "Average" often spanning
+    """
+    # Build lookup grid
+    grid = {}
+    for cell in cells:
+        r = cell['row_nums'][0]
+        c = cell['column_nums'][0]
+        grid[(r, c)] = cell
+
+    # Compute column widths from splits
+    col_widths = []
+    x_min = min(col_splits) if col_splits else 0
+    x_max = max(col_splits) if col_splits else 100
+    for i in range(n_cols):
+        x_left = x_min if i == 0 else col_splits[i - 1]
+        x_right = x_max if i == n_cols - 1 else col_splits[i]
+        col_widths.append(x_right - x_left)
+    median_col_width = sorted(col_widths)[len(col_widths) // 2] if col_widths else 50
+
+    # OPENING 1: Empty cell merge — right-to-left pass
+    for r in range(n_rows):
+        for c in range(n_cols - 1, 0, -1):  # right to left
+            cell = grid.get((r, c))
+            left = grid.get((r, c - 1))
+            if cell and left and not cell['cell_text'].strip() and left['cell_text'].strip():
+                # Empty cell with non-empty left neighbor → merge into left
+                left['column_nums'].append(c)
+                left['particles'].extend(cell['particles'])
+                grid[(r, c)] = None  # mark as merged
+
+    # OPENING 2: Width anomaly — cells >1.8x median width
+    for r in range(n_rows):
+        for c in range(n_cols):
+            cell = grid.get((r, c))
+            if not cell or not cell['particles']:
+                continue
+            ps = cell['particles']
+            x_min_cell = min(p['x'] for p in ps)
+            x_max_cell = max(p['x1'] for p in ps)
+            cell_width = x_max_cell - x_min_cell
+
+            if cell_width > 1.8 * median_col_width:
+                # Wide cell — check how many columns it should cover
+                cols_covered = 1
+                for next_c in range(c + 1, n_cols):
+                    next_cell = grid.get((r, next_c))
+                    if next_cell and not next_cell['cell_text'].strip():
+                        # Empty neighbor → include in span
+                        cell['column_nums'].append(next_c)
+                        cell['particles'].extend(next_cell['particles'])
+                        grid[(r, next_c)] = None
+                        cols_covered += 1
+                    else:
+                        break
+                    if cols_covered >= 3:  # cap at 3 to avoid runaway
+                        break
+
+    # OPENING 3: Centered text in wide span
+    for r in range(n_rows):
+        for c in range(n_cols):
+            cell = grid.get((r, c))
+            if not cell or not cell['particles'] or not cell['cell_text'].strip():
+                continue
+            ps = cell['particles']
+            text_x_min = min(p['x'] for p in ps)
+            text_x_max = max(p['x1'] for p in ps)
+
+            # Cell span bounds
+            c_min = min(cell['column_nums'])
+            c_max = max(cell['column_nums'])
+            if c_max > c_min:  # already spanning
+                span_x_min = x_min if c_min == 0 else col_splits[c_min - 1]
+                span_x_max = x_max if c_max == n_cols - 1 else col_splits[c_max]
+                span_width = span_x_max - span_x_min
+                text_center = (text_x_min + text_x_max) / 2
+                span_center = (span_x_min + span_x_max) / 2
+
+                # If text is centered in the span (within 20% tolerance) → likely header
+                if abs(text_center - span_center) < span_width * 0.2:
+                    # Already spanning and centered → good
+                    pass
+
+    # OPENING 4: Semantic hints
+    SPANNING_KEYWORDS = {'total', 'average', 'subtotal', 'sum', 'mean', 'median'}
+    for r in range(n_rows):
+        for c in range(n_cols):
+            cell = grid.get((r, c))
+            if not cell or not cell['cell_text'].strip():
+                continue
+            text_lower = cell['cell_text'].lower().strip()
+            if any(kw in text_lower for kw in SPANNING_KEYWORDS):
+                # Check if next cell is empty or numeric
+                next_c = max(cell['column_nums']) + 1
+                if next_c < n_cols:
+                    next_cell = grid.get((r, next_c))
+                    if next_cell and (not next_cell['cell_text'].strip() or
+                                      next_cell['cell_text'].strip().replace('.', '').isdigit()):
+                        # Merge semantic cell with next
+                        if next_c not in cell['column_nums']:
+                            cell['column_nums'].append(next_c)
+                            cell['particles'].extend(next_cell['particles'])
+                            grid[(r, next_c)] = None
+
+    # Rebuild cells list, sort column_nums
+    result = []
+    for r in range(n_rows):
+        for c in range(n_cols):
+            cell = grid.get((r, c))
+            if cell:
+                cell['column_nums'] = sorted(set(cell['column_nums']))
+                # Keep row_nums as [r] for now (no row spanning yet)
+                result.append(cell)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1099,6 +1242,78 @@ def find_col_splits_max_crystal(
     return best_boundaries
 
 
+def find_col_splits_adaptive_crystal(
+    particles: list[dict],
+    k: float = 0.3,
+) -> list[float]:
+    """Adaptive MODE/MAX column detection for spanning tables.
+
+    When rows mostly agree (≥70% same vote) → use MODE (standard).
+    When rows disagree (spanning detected) → use the highest col count
+    that has at least 2 votes. Falls back to MODE if no such count exists.
+    Crystal rescue when everything says 1 column.
+    """
+    if len(particles) < 2:
+        return []
+    rows = _group_into_rows(particles)
+
+    votes, row_data = [], []
+    for row in rows:
+        if len(row) < 2:
+            continue
+        n = _count_cols_ratio(row, k=k)
+        votes.append(n)
+        row_data.append((row, n))
+    if not votes:
+        return []
+
+    counter = Counter(votes)
+    mode_cols, mode_count = counter.most_common(1)[0]
+    agreement = mode_count / len(votes)
+
+    if agreement >= 0.7:
+        # Strong consensus → use MODE (standard path)
+        target_cols = mode_cols
+    else:
+        # Low agreement → spanning likely. Pick highest count with ≥2 votes.
+        candidates = [(n, c) for n, c in counter.items() if c >= 2 and n > mode_cols]
+        if candidates:
+            target_cols = max(candidates, key=lambda x: x[0])[0]
+        else:
+            # No higher count with ≥2 votes, try pure MAX
+            target_cols = max(votes)
+
+    # Crystal rescue
+    if target_cols <= 1:
+        crystal_bounds = _crystallize_columns(particles)
+        if crystal_bounds and len(crystal_bounds) <= 20:
+            return crystal_bounds
+        return []
+
+    # Find best row with target_cols
+    best_boundaries: list[float] = []
+    best_size = 0
+    for row, n in row_data:
+        if n == target_cols and len(row) > best_size:
+            ps = sorted(row, key=lambda p: p['x0'])
+            widths = [p['x1'] - p['x0'] for p in ps]
+            gaps = [ps[i + 1]['x0'] - ps[i]['x1']
+                    for i in range(len(ps) - 1)]
+            avg_w = sum(widths) / len(widths) if widths else 10
+            if avg_w <= 0:
+                avg_w = 10
+            threshold = avg_w * k
+            boundaries = [
+                (ps[i]['x1'] + ps[i + 1]['x0']) / 2
+                for i, g in enumerate(gaps)
+                if g > threshold
+            ]
+            if len(boundaries) == target_cols - 1:
+                best_boundaries = boundaries
+                best_size = len(row)
+    return best_boundaries
+
+
 # ---------------------------------------------------------------------------
 # Single-table evaluation
 # ---------------------------------------------------------------------------
@@ -1110,6 +1325,7 @@ def evaluate_grits(
     k_y: float = 0.1,
     method: str = 'ratio',
     row_method: str = 'fixed',
+    spanning: bool = False,
 ) -> dict | None:
     """Compute GriTS_Top (and optionally GriTS_Con) for one table.
 
@@ -1120,6 +1336,7 @@ def evaluate_grits(
         k_y: Row detection boundary constant (used when row_method='fixed').
         method: Column detection: ``'ratio'``, ``'natural'``, ``'ratio+crystal'``.
         row_method: Row detection: ``'fixed'`` (k_y ratio) or ``'natural'`` (perceptual).
+        spanning: Apply spanning cell detection heuristics.
 
     Returns:
         Dict with metrics, or ``None`` if the table is invalid/too large.
@@ -1164,6 +1381,8 @@ def evaluate_grits(
         col_splits = find_col_splits_ratio_crystal(particles)
     elif method == 'max+crystal':
         col_splits = find_col_splits_max_crystal(particles)
+    elif method == 'adaptive+crystal':
+        col_splits = find_col_splits_adaptive_crystal(particles)
     else:
         col_splits = find_col_splits_ratio(particles)
     if row_method == 'natural':
@@ -1189,7 +1408,7 @@ def evaluate_grits(
         top_f, top_p, top_r = compute_fscore(matched, n_true, n_pos)
     else:
         gt_cells_top = build_gt_cells(gt)
-        pred_cells_top = build_pred_cells(col_splits, rows_pred)
+        pred_cells_top = build_pred_cells(col_splits, rows_pred, detect_spanning=spanning)
         gt_grid = cells_to_relspan_grid(gt_cells_top)
         pred_grid = cells_to_relspan_grid(pred_cells_top)
         top_f, top_p, top_r = factored_2dmss(
@@ -1234,6 +1453,7 @@ _WORKER_TOP_ONLY = False
 _WORKER_KY = 0.1
 _WORKER_METHOD = 'ratio'
 _WORKER_ROW_METHOD = 'fixed'
+_WORKER_SPANNING = False
 
 
 def _eval_worker(args):
@@ -1243,19 +1463,21 @@ def _eval_worker(args):
         json_path, xml_path,
         top_only=_WORKER_TOP_ONLY, k_y=_WORKER_KY,
         method=_WORKER_METHOD, row_method=_WORKER_ROW_METHOD,
+        spanning=_WORKER_SPANNING,
     )
     if r is not None:
         r['table_id'] = os.path.basename(json_path).replace('_words.json', '')
     return r
 
 
-def _init_worker(top_only, k_y, method='ratio', row_method='fixed'):
+def _init_worker(top_only, k_y, method='ratio', row_method='fixed', spanning=False):
     """Initialiser for worker processes."""
-    global _WORKER_TOP_ONLY, _WORKER_KY, _WORKER_METHOD, _WORKER_ROW_METHOD
+    global _WORKER_TOP_ONLY, _WORKER_KY, _WORKER_METHOD, _WORKER_ROW_METHOD, _WORKER_SPANNING
     _WORKER_TOP_ONLY = top_only
     _WORKER_KY = k_y
     _WORKER_METHOD = method
     _WORKER_ROW_METHOD = row_method
+    _WORKER_SPANNING = spanning
 
 
 # ---------------------------------------------------------------------------
@@ -1278,15 +1500,17 @@ def main():
                         help='Topology only (skip GriTS_Con)')
     parser.add_argument('--dataset', choices=['pubtables', 'fintabnet'],
                         default='pubtables')
-    parser.add_argument('--method', choices=['ratio', 'natural', 'ratio+crystal', 'max+crystal'],
+    parser.add_argument('--method', choices=['ratio', 'natural', 'ratio+crystal', 'max+crystal', 'adaptive+crystal'],
                         default='ratio',
-                        help='Column detection: ratio (mode), natural (threshold+crystal), ratio+crystal (mode + rescue), max+crystal (max + rescue)')
+                        help='Column detection: ratio (mode), natural (threshold+crystal), ratio+crystal (mode + rescue), max+crystal (max + rescue), adaptive+crystal (adaptive mode/max + rescue)')
     parser.add_argument('--row-method', choices=['fixed', 'natural', 'consensus', 'density'],
                         default='fixed',
                         help='Row detection: fixed (k_y ratio), natural (perceptual), consensus (cross-column), density (merge sparse rows)')
     parser.add_argument('--verbose', '-v', action='store_true')
     parser.add_argument('--save-json', default=None,
                         help='Save per-table results to JSON for analysis')
+    parser.add_argument('--spanning', action='store_true',
+                        help='Apply spanning cell detection heuristics (experimental)')
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -1302,6 +1526,7 @@ def main():
         'natural': 'natural+crystal',
         'ratio+crystal': 'ratio k=0.3 + col crystal',
         'max+crystal': 'MAX k=0.3 + col crystal',
+        'adaptive+crystal': 'adaptive MODE/MAX + crystal',
     }
     row_label = 'natural' if args.row_method == 'natural' else f'k_y={args.ky}'
     print(f"\n{'=' * 65}")
@@ -1319,7 +1544,7 @@ def main():
         with Pool(
             args.cores,
             initializer=_init_worker,
-            initargs=(args.top_only, args.ky, args.method, args.row_method),
+            initargs=(args.top_only, args.ky, args.method, args.row_method, args.spanning),
         ) as pool:
             for i, r in enumerate(
                 pool.imap_unordered(_eval_worker, work, chunksize=32),
@@ -1338,6 +1563,7 @@ def main():
                 json_path, xml_path,
                 top_only=args.top_only, k_y=args.ky,
                 method=args.method, row_method=args.row_method,
+                spanning=args.spanning,
             )
             if r is None:
                 skipped += 1

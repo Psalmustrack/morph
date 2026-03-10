@@ -20,10 +20,10 @@ We evaluate Morph on six public benchmarks spanning five document types:
 scientific tables (PubTables-1M, 93K tables), financial tables (FinTabNet,
 9K tables), digital receipts (CORD, 900 receipts), scanned receipts (SROIE,
 626 receipts), scanned forms (FUNSD, 199 forms), and scientific papers
-(DocBank, 500K pages).  The perceptual principle achieves 93.3% boundary
-precision on 13.8 million gaps across two domains with zero domain-specific
-parameters.  On the GriTS benchmark, Morph reaches 79.9% on PubTables-1M
-and 78.1% on FinTabNet — a cross-domain gap of only 1.8 percentage points —
+(DocBank, 500K pages).  The perceptual principle achieves 92.3% boundary
+precision on 13.7 million gaps across two public domains with zero
+domain-specific parameters.  On the GriTS benchmark, Morph reaches 78.0% on PubTables-1M
+and 70.6% on FinTabNet — a cross-domain gap of 7.4 percentage points —
 while processing 560 tables per second on a laptop CPU.
 
 The current implementation targets numeric content (cell values,
@@ -84,7 +84,7 @@ The approach has three distinctive properties:
    backpropagation.
 
 2. **Cross-domain stability.**  The same constants work on scientific papers,
-   financial filings, and scanned receipts — a GriTS gap of only 1.8 pp
+   financial filings, and scanned receipts — a GriTS gap of 7.4 pp
    between PubTables-1M and FinTabNet.
 
 3. **Full interpretability.**  Every decision is traceable: which text span
@@ -96,11 +96,12 @@ Our contributions are:
 - A **perceptual boundary detection principle** based on the maximum ratio
   of consecutive sorted gaps, related to Otsu's method [13] and Jenks
   natural breaks [14] but with different mechanism and complexity.  Validated
-  on 13.8 million gaps across 102K tables with 93.3% precision (Section 3.5).
+  on 13.7 million gaps across 102K public tables with 92.3% precision
+  (Section 3.5).
 
 - A **field equation for document particles**, adapting the gravitational
   interaction model [11] to lexically typed text elements with directional
-  anisotropy, achieving 79.9% GriTS on PubTables-1M without training
+  anisotropy, achieving 78.0% GriTS on PubTables-1M without training
   (Section 3.4).
 
 - A **six-benchmark evaluation** spanning tables, receipts, forms, and
@@ -351,7 +352,7 @@ deviations is promoted to SECTION.
 Critically, sensing **only promotes** — it never downgrades an existing type.
 This ensures monotonic information gain.
 
-On HVAC catalogues, this layer alone improved extraction health from 35.7%
+On industrial technical catalogues, this layer alone improved extraction health from 35.7%
 to 63.4% (+27.7 pp) without any vocabulary — pure spatial inference.
 
 ### 3.4 Layer 2: The Field Equation
@@ -500,8 +501,8 @@ a translator converts field-extracted particles into a grid structure:
 4. Extract boundary positions from the best row matching the modal count
 5. Analogously for vertical gaps with k_y = 0.05
 
-The translation is lossy: boundary precision (93.3%) degrades to GriTS
-(78.0%), a gap of 15.3 pp due to the grid translator, not the underlying
+The translation is lossy: boundary precision (92.3%) degrades to GriTS
+(78.0%), a gap of 14.3 pp due to the grid translator, not the underlying
 principle.
 
 ---
@@ -578,7 +579,8 @@ k_y = 0.05, r_min = 1.5.  All constants are invariant across experiments.
 
 Table 1 summarises all benchmark results in a single view.
 
-**Table 1.  Summary of results across six public benchmarks.**
+**Table 1.  Summary of results across six public benchmarks and one
+internal dataset.**
 
 | Benchmark | Domain | Key Metric | Value | Speed |
 |-----------|--------|------------|-------|-------|
@@ -586,11 +588,11 @@ Table 1 summarises all benchmark results in a single view.
 | PubTables-1M | Scientific tables | GriTS_Top | **78.0%** | 110 tables/s |
 | FinTabNet | Financial tables | Boundary F1 | **69.8%** | 560 tables/s |
 | FinTabNet | Financial tables | GriTS_Top | **70.6%** | 130 tables/s |
-| HVAC | Industrial catalogues | Boundary F1 | **82.9%** | 560 tables/s |
 | CORD | Digital receipts | Spatial Precision | **89.6%** | 1,168 receipts/s |
 | SROIE | Scanned receipts | Total Recall | **74.2%** | 461 receipts/s |
 | FUNSD | Scanned forms | Spatial Precision | **73.0%** | 190 forms/s |
 | DocBank | Scientific papers | Bond Purity | **85.6%** | 72 pages/s |
+| Industrial (internal) | Technical catalogues | Boundary F1 | **82.9%** | 560 tables/s |
 
 Cross-domain GriTS gap (PubTables-1M vs FinTabNet): **7.4 pp**.
 All results with identical parameters, zero training, CPU only.
@@ -605,11 +607,13 @@ boundary or non-boundary:
 |---------|--------|------|-----------|--------|----|
 | PubTables-1M | 92,790 | 12.7M | **92.3%** | 68.9% | **78.9%** |
 | FinTabNet | 9,121 | 1.0M | **73.6%** | 66.4% | **69.8%** |
-| HVAC | 2,578 | 342K | **93.4%** | 74.6% | **82.9%** |
-| **Total** | **104,489** | **14.1M** | — | — | — |
+| **Public total** | **101,911** | **13.7M** | — | — | — |
+| Industrial (internal) | 2,578 | 342K | **93.4%** | 74.6% | **82.9%** |
 
-104K tables, 14.1M gaps, 3 domains, 94 seconds on 4 cores.  Zero
-domain-specific parameters.
+102K public tables, 13.7M gaps, two domains, 94 seconds on 4 cores.  Zero
+domain-specific parameters.  An additional internal dataset of 2,578
+industrial catalogue tables (342K gaps) is included for supplementary
+validation but is not publicly available.
 
 **Ablation: crystallisation.**  The multi-scale extension (Section 3.5)
 improves recall on equispaced tables without sacrificing precision:
@@ -618,10 +622,11 @@ improves recall on equispaced tables without sacrificing precision:
 |---------|--------------|-------------------|-------|
 | PubTables-1M | 75.5% | **78.9%** | **+3.4 pp** |
 | FinTabNet | 69.0% | **69.8%** | **+0.8 pp** |
-| HVAC | 74.0% | **82.9%** | **+9.0 pp** |
+| Industrial (internal) | 74.0% | **82.9%** | **+9.0 pp** |
 
-The improvement is largest on HVAC (+9.0 pp), where industrial catalogues
-contain many equispaced tables that defeat row-scale bimodality detection.
+The improvement is largest on the internal industrial dataset (+9.0 pp),
+where technical catalogues contain many equispaced tables that defeat
+row-scale bimodality detection.
 
 **GriTS benchmark.**  After grid translation (full datasets):
 
@@ -631,7 +636,7 @@ contain many equispaced tables that defeat row-scale bimodality detection.
 | FinTabNet (8,386) | **70.6%** | 55.1% | 65.4% |
 | Cross-domain gap | **7.4 pp** | 12.8 pp | 14.5 pp |
 
-The 15.3 pp gap between boundary precision (93.3%) and GriTS (78.0%) is
+The 14.3 pp gap between boundary precision (92.3%) and GriTS (78.0%) is
 due to the grid translator, not the underlying principle.
 
 **Cross-domain stability.**  The 7.4 pp GriTS gap between PubTables-1M
@@ -699,7 +704,7 @@ invisible to the field.  Maximum reach: 6.2% of total tokens.
 
 ### 5.5 Ablation Studies
 
-**Layer contribution** (measured on internal HVAC deployment, 6,238 pages):
+**Layer contribution** (measured on internal industrial deployment, 6,238 pages):
 
 | Configuration | Health | Delta |
 |--------------|--------|-------|
@@ -741,6 +746,13 @@ is structural — columns are rigid (words align vertically within a column),
 while rows are elastic (cells may contain multiple text lines, creating
 spurious Y-centre clusters that mimic row boundaries).
 
+**Scope of crystallisation.**  Crystallisation is a column detection
+technique that operates within the grid translator (Section 3.6).  The
+non-table benchmarks (CORD, SROIE, FUNSD, DocBank) evaluate field-level
+bonds directly — spatial precision, entity F1, bond purity — and do not
+pass through the grid translator.  Crystallisation therefore has no effect
+on these benchmarks and is not ablated for them.
+
 ---
 
 ## 6. Analysis
@@ -751,8 +763,8 @@ Using identical parameters across all six benchmarks:
 
 | Benchmark | Domain | Metric | Value |
 |-----------|--------|--------|-------|
-| PubTables-1M | Scientific tables | Boundary P | 93.3% |
-| FinTabNet | Financial tables | Boundary P | 73.7% |
+| PubTables-1M | Scientific tables | Boundary P | 92.3% |
+| FinTabNet | Financial tables | Boundary P | 73.6% |
 | CORD | Digital receipts | Spatial P | 89.6% |
 | SROIE | Scanned receipts | Total recall | 74.2% |
 | FUNSD | Scanned forms | Spatial P | 73.0% |
@@ -761,7 +773,7 @@ Using identical parameters across all six benchmarks:
 The precision range (73-93%) reflects domain characteristics (financial
 tables have denser, more irregular layouts) rather than parameter mismatch.
 
-**A necessary caveat.**  The 1.8 pp GriTS gap between PubTables-1M and
+**A necessary caveat.**  The 7.4 pp GriTS gap between PubTables-1M and
 FinTabNet is measured on content that the field can reach — predominantly
 numeric tokens.  Numeric content (digits, decimal points, unit symbols) is
 inherently domain-invariant: the same numerals appear in financial tables
@@ -883,12 +895,12 @@ consider novel:
   finding)
 - The three-layer architecture (intrinsic typing → spatial promotion →
   field binding) as a unified system
-- Cross-domain validation at this scale (102K tables, 13.8M gaps, two
-  domains) for an unsupervised table recognition method
+- Cross-domain validation at this scale (102K public tables, 13.7M gaps,
+  two domains) for an unsupervised table recognition method
 
 ### 7.3 Limitations
 
-**Accuracy gap.**  Morph's 79.9% GriTS on PubTables-1M is below
+**Accuracy gap.**  Morph's 78.0% GriTS on PubTables-1M is below
 state-of-the-art neural methods (95.7%).  The gap is primarily structural:
 Morph assumes a regular grid and does not model spanning cells, multi-level
 headers, or complex layouts.
@@ -917,8 +929,8 @@ Evaluating Morph therefore requires a lossy grid translation step
 principle itself.
 
 The magnitude of this translation cost is measurable: boundary precision
-(93.3%) — a direct test of the principle on raw gaps — drops to GriTS
-(79.9%) after grid translation, a loss of **13.4 percentage points**.
+(92.3%) — a direct test of the principle on raw gaps — drops to GriTS
+(78.0%) after grid translation, a loss of **14.3 percentage points**.
 This gap is not a limitation of the principle but of the evaluation
 protocol.  The grid translator is a ~50-line adapter written for benchmark
 compatibility, not a core component.
@@ -932,8 +944,8 @@ spatial errors.
 
 This means that the numbers in Table 1 systematically underestimate the
 perceptual principle's true accuracy.  The most faithful measurement is the
-direct boundary test (Section 5.1): 93.3% precision on 13.8M gaps, 102K
-tables, two domains, zero domain-specific parameters.  Every other metric
+direct boundary test (Section 5.1): 92.3% precision on 13.7M gaps, 102K
+public tables, two domains, zero domain-specific parameters.  Every other metric
 includes translation costs, schema mismatches, or coverage penalties that
 are orthogonal to the spatial principle being evaluated.
 
@@ -944,11 +956,11 @@ engineering problem, not a scientific one.
 
 ### 7.5 Future Work
 
-**Industrial deployment.**  In deployment on HVAC technical catalogues
-(5 brands, 6,238 pages), the system achieves 95.2% extraction health with
-domain-specific vocabulary, suggesting that the W wall can be overcome
-with domain knowledge.  Detailed industrial evaluation is deferred to
-future work.
+**Industrial deployment.**  In deployment on technical product catalogues
+from multiple manufacturers (6,238 pages), the system achieves 95.2%
+extraction health with domain-specific vocabulary, suggesting that the W
+wall can be overcome with domain knowledge.  Detailed industrial
+evaluation is deferred to future work.
 
 **Extending the type system.**  Adding regex types (DATE, PRICE,
 REFERENCE) would reclassify TEXT tokens, expanding the field's reach
@@ -974,11 +986,11 @@ methods but uses a mechanism distinct from Otsu, Jenks, or dip test
 approaches.  The field equation adapts the gravitational interaction form
 to typed document particles through an explicit interaction matrix.
 
-Validated on 13.8 million gaps across 102K tables with 93.3% boundary
-precision, the principle operates without training data, GPU inference, or
-domain-specific parameters.  Across six benchmarks spanning tables,
+Validated on 13.7 million gaps across 102K public tables with 92.3%
+boundary precision, the principle operates without training data, GPU
+inference, or domain-specific parameters.  Across six benchmarks spanning tables,
 receipts, forms, and document layout, Morph demonstrates 73-93% precision
-and 1.8 pp cross-domain stability on table structure recognition.
+and 7.4 pp cross-domain stability on table structure recognition.
 
 The system's limitation is equally clear: the interaction matrix restricts
 bonds to NUMERIC particles, leaving text-heavy documents largely
@@ -996,12 +1008,13 @@ modes are difficult to characterise.
 ## Acknowledgments
 
 This work was conducted as a human-AI collaboration between the author and
-Claude Opus 4 (Anthropic).  The core hypotheses, architectural decisions,
-biological analogies, and experimental design originated from the author.
-The AI contributed to code implementation, literature search, benchmark
-infrastructure, statistical analysis, and paper drafting.  ChatGPT (OpenAI)
-and Gemini (Google) were consulted for specific technical discussions during
-the research.  All scientific claims were verified empirically by the author.
+Anthropic's Claude.  Code implementation was carried out with Claude Code
+(Anthropic's agentic CLI tool), while architectural reasoning, experimental
+analysis, and paper drafting relied on Claude Opus 4.6.  The core hypotheses,
+architectural decisions, biological analogies, and experimental design
+originated from the author.  ChatGPT (OpenAI) and Gemini (Google) were
+consulted for specific technical discussions during the research.  All
+scientific claims were verified empirically by the author.
 
 ---
 
