@@ -338,7 +338,8 @@ def evaluate_table(
     sense_result = sense_page(particles)
     sensed = sense_result['particles']
 
-    field_result = extract_page(sensed)
+    # v2.0 parameters: sigma_font=50, sigma_hierarchy=30, sigma_color=100, R=0
+    field_result = extract_page(sensed, sigma_font=50, sigma_hierarchy=30, sigma_color=100, R=0)
 
     # Metriche bond del campo
     bonds = evaluate_field_bonds(field_result, gt)
