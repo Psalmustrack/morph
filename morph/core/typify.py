@@ -223,13 +223,14 @@ def _merge_fragments(particles: list[dict],
 def extract_particles(page,
                       model_patterns: list = None,
                       size_patterns: list = None,
-                      domain: bool = True) -> list[dict]:
+                      domain: bool = True,
+                      full_features: bool = False) -> list[dict]:
     """Extract and classify all words from a PDF page into particles.
 
     This is the main entry point for Layer 1. Each word becomes a "particle"
     with spatial coordinates and an intrinsic type.
 
-    Particle dict keys::
+    Particle dict keys (basic - v0.1)::
 
         text  — Textual content (truncated to 80 chars)
         x     — Horizontal center
@@ -241,9 +242,21 @@ def extract_particles(page,
         type  — One of PARTICLE_TYPES
         size  — Font size (points)
 
+    Additional keys (v2.0 with full_features=True)::
+
+        font        — Font name (e.g., "MyriadPro-Bold")
+        flags       — Font flags (bold, italic, mono, serif)
+        color       — RGB color as int
+        origin      — (x, y) baseline point tuple
+        ascender    — Font ascender height
+        descender   — Font descender depth
+        span_num    — Span index within line
+        line_num    — Line index within block
+        block_num   — Block index within page
+
     Pipeline::
 
-        1. extract_words() with x_tolerance=1.5
+        1. extract_words() with full_features flag
         2. typify_word() on each word
         3. _merge_fragments() to reassemble broken glyphs
         4. sense_page() [Layer 1b] to promote TEXT by spatial context
@@ -256,11 +269,14 @@ def extract_particles(page,
         model_patterns: Brand-specific model code regex list.
         size_patterns: Brand-specific size header regex list.
         domain: If False, defer domain classification to sensing.
+        full_features: If True, extract rich PyMuPDF features (v2.0).
 
     Returns:
         List of particle dicts, spatially sensed and ready for Layer 2.
     """
     words_raw = page.extract_words(
+        full_features=full_features,
+        # Legacy pdfplumber args (ignored by MorphoPage)
         keep_blank_chars=True,
         x_tolerance=1.5,
         extra_attrs=["fontname", "size"],
@@ -271,7 +287,9 @@ def extract_particles(page,
         if not text:
             continue
         ptype = typify_word(text, model_patterns, size_patterns, domain=domain)
-        particles.append({
+
+        # Basic particle (v0.1 compatibility)
+        particle = {
             'text': text[:80],
             'x': (w['x0'] + w['x1']) / 2,
             'y': (w['top'] + w['bottom']) / 2,
@@ -281,7 +299,23 @@ def extract_particles(page,
             'x1': w['x1'],
             'type': ptype,
             'size': w.get('size', 0),
-        })
+        }
+
+        # Rich features (v2.0)
+        if full_features:
+            particle.update({
+                'font': w.get('font', ''),
+                'flags': w.get('flags', 0),
+                'color': w.get('color', 0),
+                'origin': w.get('origin', (0, 0)),
+                'ascender': w.get('ascender', 0),
+                'descender': w.get('descender', 0),
+                'span_num': w.get('span_num', 0),
+                'line_num': w.get('line_num', 0),
+                'block_num': w.get('block_num', 0),
+            })
+
+        particles.append(particle)
 
     # Reassemble fragmented glyphs (e.g., "6" + ",5" + "k" + "W" → "6,5kW")
     particles = _merge_fragments(particles, model_patterns, size_patterns)

@@ -42,38 +42,89 @@ class MorphoPage:
         self.height = fitz_page.rect.height
         self.page_number = fitz_page.number + 1  # 1-based
 
-    def extract_words(self, **kwargs) -> list[dict]:
-        """Extract words with bounding boxes, pdfplumber-compatible format.
+    def extract_words(self, full_features: bool = True, **kwargs) -> list[dict]:
+        """Extract words with bounding boxes and rich PyMuPDF features.
 
         PyMuPDF spans are already grouped by font/style from the PDF.
         In a technical catalog, each span corresponds to a semantic unit
         (label, value, unit) — keeping them whole preserves multi-word
         labels that extract_page() expects.
 
+        Args:
+            full_features: If True (default), extract all PyMuPDF features
+                (font, color, hierarchy, baseline). If False, extract only
+                basic features (text, bbox, size) for v0.1 compatibility.
+
         Returns:
-            List of dicts with keys: text, x0, top, x1, bottom, size
+            List of dicts with keys:
+                - Basic (v0.1): text, x0, top, x1, bottom, size
+                - Full (v2.0): + font, flags, color, origin, ascender,
+                  descender, span_num, line_num, block_num
         """
         page_dict = self._page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
 
         words = []
-        for block in page_dict.get("blocks", []):
+        for block_num, block in enumerate(page_dict.get("blocks", [])):
             if block.get("type") != 0:  # text blocks only
                 continue
-            for line in block.get("lines", []):
-                for span in line.get("spans", []):
+            for line_num, line in enumerate(block.get("lines", [])):
+                for span_num, span in enumerate(line.get("spans", [])):
                     text = span["text"].strip()
                     if not text:
                         continue
-                    words.append({
+
+                    # Basic features (v0.1 compatibility)
+                    word = {
                         'text': text,
                         'x0': span["bbox"][0],
                         'top': span["bbox"][1],
                         'x1': span["bbox"][2],
                         'bottom': span["bbox"][3],
                         'size': span.get("size", 0),
-                    })
+                    }
+
+                    # Full features (v2.0)
+                    if full_features:
+                        word.update({
+                            # Typography
+                            'font': span.get("font", ""),
+                            'flags': span.get("flags", 0),  # bold, italic, mono, serif
+                            'color': span.get("color", 0),  # RGB as int
+
+                            # Baseline & metrics
+                            'origin': span.get("origin", (0, 0)),  # (x, y) baseline point
+                            'ascender': span.get("ascender", 0),
+                            'descender': span.get("descender", 0),
+
+                            # Hierarchy (parent-child structure)
+                            'span_num': span_num,
+                            'line_num': line_num,
+                            'block_num': block_num,
+                        })
+
+                    words.append(word)
 
         return words
+
+    def extract_drawings(self) -> list[dict]:
+        """Extract vector drawings (lines, rectangles, borders).
+
+        Useful for detecting table borders in bordered tables.
+
+        Returns:
+            List of dicts with keys: type, rect, color, width, items
+        """
+        drawings = self._page.get_drawings()
+        return [
+            {
+                'type': d.get('type', ''),  # 'l' (line), 'r' (rect), 'c' (curve)
+                'rect': d.get('rect', (0, 0, 0, 0)),  # (x0, y0, x1, y1)
+                'color': d.get('color', None),  # RGB tuple or None
+                'width': d.get('width', 0),  # line width
+                'items': d.get('items', []),  # path items
+            }
+            for d in drawings
+        ]
 
 
 class MorphoDoc:
@@ -109,6 +160,26 @@ class MorphoDoc:
     def close(self):
         """Explicitly close the document."""
         self._doc.close()
+
+    def get_toc(self) -> list[tuple]:
+        """Extract table of contents (TOC).
+
+        Useful for calibrazione contestuale (σ = f(section)).
+        Each TOC entry is a tuple (level, title, page_num).
+
+        Returns:
+            List of (level, title, page_num) tuples.
+        """
+        return self._doc.get_toc()
+
+    def get_metadata(self) -> dict:
+        """Extract document metadata.
+
+        Returns:
+            Dict with keys: author, title, subject, keywords, creator,
+            producer, creationDate, modDate, format, encryption, etc.
+        """
+        return self._doc.metadata or {}
 
 
 def open_pdf(path: str) -> MorphoDoc:
