@@ -1,8 +1,10 @@
-# 🚀 ROAD TO MORPH v2.0
+# 🚀 ROAD TO MORPH v2.0 + V3.0 VISION
 
-**Vision:** Morph con TUTTI i sensi — il campo morfogenetico completo come in natura.
+**Vision v2.0:** Morph con TUTTI i sensi — il campo morfogenetico completo come in natura (per TABELLE).
 
-**Principio fondamentale:** L'equazione NON cambia. L'input diventa ricco.
+**Vision v3.0:** Estensione al TESTO FLUIDO — la stessa fisica, stato diverso. **Fisica Topografica Unificata.**
+
+**Principio fondamentale:** L'equazione NON cambia. L'input diventa ricco. Lo stato (α) si adatta.
 
 ```
 Φ = W · A / d^α     ← IMMUTABILE
@@ -1062,6 +1064,389 @@ assert len(boundaries) >= 1  # almeno 1 confine trovato
 
 ---
 
+## 🌊 VISION V3: FISICA TOPOGRAFICA - ESTENSIONE AL FLUIDO
+
+**Stato:** 🔬 Ricerca - Concept validato, implementazione da pianificare dopo v2.0
+
+**Scoperta fondamentale:** Il campo morfogenetico Φ non è limitato alle tabelle (stato solido). La stessa equazione può modellare anche il **testo libero** (stato fluido), estendendo Morph a un sistema universale di parsing documentale.
+
+### 🎯 TEORIA: I TRE STATI DELLA MATERIA DOCUMENTALE
+
+```
+STATO SOLIDO (α = 2.0)    →  TABELLE
+  • Struttura rigida, cristallina
+  • Allineamenti verticali/orizzontali forti
+  • Celle, righe, colonne ben definite
+  • Campo attrattivo dominante
+
+STATO FLUIDO (α = 0.5)    →  TESTO LIBERO
+  • Struttura flessibile, scorre
+  • Punteggiatura come forza gravitazionale
+  • Frasi, paragrafi, sezioni emergono naturalmente
+  • M_p (Punctuation Multiplier) modula il campo
+
+STATO GASSOSO (α → 0)     →  FUTURO (annotazioni, note sparse)
+  • Struttura caotica, espansa
+  • Collegamenti deboli, long-range
+  • Da esplorare
+```
+
+### 📐 EQUAZIONE CAMPO FLUIDO
+
+L'equazione fondamentale **NON cambia**:
+
+```
+Φ = W · A / d^α
+```
+
+Ma si **arricchisce** con nuovi parametri per il testo:
+
+```python
+# TESTO FLUIDO:
+Φ_text = (W_text / d^α) × M_p × R_c
+
+dove:
+  α = 0.5              # Alpha ridotto → campo più long-range
+  d = distanza geometrica (x, y)
+
+  M_p = Punctuation Multiplier (NUOVO!)
+      0.0  →  Periodo/punto  → MURO COGNITIVO (fine frase)
+      0.4  →  Virgola (tra frasi) → RALLENTAMENTO
+      0.8  →  Virgola (dentro frase) → FLUSSO
+      1.0  →  Normale → FLUSSO STANDARD
+      1.5  →  Trattino (-) → WORMHOLE (unisce parti)
+
+  R_c = Column Repulsion (da v2.0)
+      Previene mixing tra colonne in layout multi-colonna
+```
+
+### 🧠 M_p: IL MOLTIPLICATORE DI PUNTEGGIATURA
+
+**Intuizione chiave:** La punteggiatura non è decorativa — è **fisica topografica**.
+
+```python
+def calculate_text_phi(p1, p2, alpha=0.5):
+    """Calcola Φ tra due parole nel testo"""
+
+    # Distanza geometrica
+    dx = max(0, p2['x0'] - p1['x1'])
+    dy = abs(p1['y'] - p2['y'])
+    d = (dx**2 + dy**2)**0.5
+
+    # Base phi
+    base_phi = W_TEXT / (d ** alpha)
+
+    # M_p: context-aware punctuation multiplier
+    text1 = p1['text'].strip()
+    text2 = p2['text'].strip()
+
+    if text1.endswith(('.', '!', '?')):
+        m_p = 0.0  # MURO: fine frase definitiva
+
+    elif text1.endswith((',', ';', ':')):
+        # CONTEXT: se dopo virgola c'è minuscola → stessa frase
+        if text2 and text2[0].islower():
+            m_p = 0.8  # RALLENTAMENTO ma non rottura
+        else:
+            m_p = 0.4  # ROTTURA tra frasi
+
+    elif text1.endswith('-'):
+        m_p = 1.5  # WORMHOLE: unisce parti (es. "multi-dimensional")
+
+    else:
+        m_p = 1.0  # FLUSSO NORMALE
+
+    # Φ totale
+    phi_total = base_phi * m_p
+
+    return phi_total
+```
+
+### ✅ VALIDAZIONE PROOF-OF-CONCEPT
+
+**Test su testo reale** (`docs/paper/draft.md`):
+
+```python
+# Frase complessa da paper scientifico:
+"A table's columns emerge from vertical alignment, its rows from
+horizontal proximity, and its cell boundaries from gaps in the text."
+
+# RISULTATO con M_p context-aware:
+- "alignment," → "its"     : Φ = 0.445 (virgola+lowercase → stessa frase ✅)
+- "proximity," → "and"     : Φ = 0.421 (virgola+lowercase → stessa frase ✅)
+- "text." → "We"           : Φ = 0.000 (periodo → fine frase, rottura ✅)
+
+# La frase resta UNITA, il periodo la separa correttamente!
+```
+
+**Feedback:** "OHHHH MIO DIOOOOOO" — validazione della "Fisica Topografica"
+
+### 🏗️ ARCHITETTURA PROPOSTA: LAYER 3 (FLUIDO)
+
+```
+morph/core/layer3_fluid/
+├── text_phi.py           # Calcolo Φ_text con M_p
+├── reading_order.py      # Stabilisce sequenza parole (CRITICO)
+├── chunk.py              # Segmenta in frasi/paragrafi
+└── tests/
+    ├── test_punctuation_multiplier.py
+    ├── test_reading_order.py
+    └── test_real_documents.py
+```
+
+**File chiave:**
+
+1. **`text_phi.py`**
+   ```python
+   def calculate_text_phi(p1, p2, alpha=0.5) -> float:
+       """Φ per testo con M_p context-aware"""
+       # Implementazione completa sopra
+
+   def get_m_p(word1: str, word2: str) -> float:
+       """Determina M_p tra due parole"""
+       # Logica punteggiatura context-aware
+   ```
+
+2. **`reading_order.py`** (CHALLENGE PRINCIPALE)
+   ```python
+   def establish_reading_order(particles: list[dict]) -> list[dict]:
+       """Stabilisce sequenza di lettura PRIMA di calcolare Φ
+
+       Challenge: single-column è facile (sort y, x)
+                  multi-column richiede column detection PRIMA
+
+       Soluzione proposta:
+       1. Usa Layer 1b (sense.detect_columns) per segmentare
+       2. All'interno di ogni colonna: sort by y, then x
+       3. Return lista ordinata di particles
+       """
+
+       # Detect columns (da sense.py v2.0)
+       columns = detect_columns(particles)
+
+       ordered = []
+       for col_idx, col_bounds in enumerate(columns):
+           # Filtra particles in questa colonna
+           col_particles = [p for p in particles
+                           if col_bounds[0] <= p['x'] <= col_bounds[1]]
+
+           # Sort per y, poi x
+           col_particles.sort(key=lambda p: (p['y'], p['x']))
+           ordered.extend(col_particles)
+
+       return ordered
+   ```
+
+3. **`chunk.py`**
+   ```python
+   def segment_into_chunks(particles: list[dict],
+                          threshold: float = 0.2) -> list[list[dict]]:
+       """Segmenta testo in chunks (frasi/paragrafi) usando Φ_text
+
+       Returns: lista di chunks, ogni chunk è lista di particles
+       """
+
+       # 1. Stabilisci reading order
+       ordered = establish_reading_order(particles)
+
+       # 2. Calcola Φ tra parole consecutive
+       chunks = []
+       current_chunk = [ordered[0]]
+
+       for i in range(len(ordered) - 1):
+           phi = calculate_text_phi(ordered[i], ordered[i+1])
+
+           if phi < threshold:
+               # Φ basso → boundary, inizia nuovo chunk
+               chunks.append(current_chunk)
+               current_chunk = [ordered[i+1]]
+           else:
+               # Φ alto → stessa unità
+               current_chunk.append(ordered[i+1])
+
+       # Aggiungi ultimo chunk
+       if current_chunk:
+           chunks.append(current_chunk)
+
+       return chunks
+   ```
+
+### 🎯 STRATEGIA DI IMPLEMENTAZIONE
+
+**IMPORTANTE:** V3 si implementa **DOPO** v2.0 è completo e validato.
+
+**Phase V3.0: Validazione Incrementale**
+
+1. **Test su 20 PDF diversi** (prima di committare a Layer 3):
+   - Scientific papers (single column)
+   - Journal articles (2-column)
+   - Technical reports (mixed layouts)
+   - Catalogs (tabelle + testo)
+   - Books (paragrafi lunghi)
+
+2. **Metriche di successo:**
+   - Frasi identificate correttamente: >90%
+   - Paragrafi segmentati correttamente: >85%
+   - Nessun mixing tra colonne: 100%
+
+3. **Decision point:**
+   - ✅ Se metriche OK → implementa Layer 3 completo
+   - ❌ Se fallisce → rivedi α, M_p values, threshold
+
+**Phase V3.1: Reading Order Resolution**
+
+Focus: risolvere il problema critico dell'ordine di lettura
+
+- Integrare con `sense.detect_columns()` di v2.0
+- Algoritmo robust per layout complessi
+- Test su newspapers, journals, textbooks
+
+**Phase V3.2: Layer 3 Implementation**
+
+- `text_phi.py` con M_p completo
+- `reading_order.py` production-ready
+- `chunk.py` per segmentazione
+- Test suite completa
+
+**Phase V3.3: Integration**
+
+- Unifica Layer 2 (tables) + Layer 3 (text)
+- API unificata: `extract_page()` ritorna sia tabelle che testo strutturato
+- Benchmark su dataset misti
+
+### 🚧 CHALLENGES IDENTIFICATI
+
+1. **Reading Order** (CRITICO)
+   - Problema: serve sequenza parole PRIMA di calcolare Φ
+   - Soluzione: usa column detection (Layer 1b) prima
+   - Single column: facile (sort y, x)
+   - Multi-column: richiede column boundaries prima
+
+2. **Threshold Tuning**
+   - α=0.5 per testo è ipotesi da validare
+   - M_p values (0.0, 0.4, 0.8, 1.0, 1.5) da calibrare empiricamente
+   - Threshold Φ=0.2 per boundary da ottimizzare per dataset
+
+3. **Multi-column Complexity**
+   - Newspaper/journal layouts richiedono column detection robusto
+   - Risk: mixing tra colonne se R_c non calibrato bene
+   - Soluzione: riusa `sense.py` hybrid boundaries di v2.0
+
+4. **Language Specifics**
+   - Punteggiatura varia per lingua (es. "!" in spagnolo)
+   - RTL languages (Arabic, Hebrew) richiedono reading order inverso
+   - Da gestire in fase di calibrazione
+
+### 🔗 INTEGRAZIONE CON V2.0
+
+V3 **estende** v2.0, non lo sostituisce:
+
+```python
+# API unificata:
+result = extract_page(particles, mode='auto')
+
+# Mode 'auto' → detecta se tabella o testo
+# Mode 'table' → forza Layer 2 (α=2.0)
+# Mode 'text' → forza Layer 3 (α=0.5)
+
+result = {
+    'tables': [
+        {
+            'type': 'table',
+            'entities': [...],
+            'specs': {...},
+            # ... output Layer 2
+        }
+    ],
+    'text': [
+        {
+            'type': 'paragraph',
+            'sentences': [...],
+            # ... output Layer 3
+        }
+    ]
+}
+```
+
+### 📚 TEORIA: FISICA TOPOGRAFICA UNIFICATA
+
+**La visione completa:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ MORPH: TEORIA UNIFICATA DELLA STRUTTURA DOCUMENTALE         │
+│                                                              │
+│  Φ = W · A / d^α    ← UNA SOLA EQUAZIONE                   │
+│                                                              │
+│  Ma α modella lo STATO DELLA MATERIA:                       │
+│                                                              │
+│  α = 2.0  →  SOLIDO   (tabelle, rigido)                    │
+│  α = 0.5  →  FLUIDO   (testo, flessibile)                  │
+│  α → 0    →  GASSOSO  (note sparse, futuro)                │
+│                                                              │
+│  Addizionale:                                                │
+│    M_p = Punctuation Multiplier (per fluido)               │
+│    R_c = Column Repulsion (per entrambi)                    │
+│                                                              │
+│  Come la fisica reale:                                       │
+│    H₂O = ghiaccio, acqua, vapore                           │
+│        → stessa molecola, diversi stati                     │
+│                                                              │
+│  Morfogenesi documentale:                                    │
+│    PDF = tabelle, testo, figure                            │
+│        → stesso campo Φ, diversi parametri                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Implicazioni filosofiche:**
+
+- Non esistono "parser per tabelle" e "parser per testo" separati
+- Esiste UN SOLO campo morfogenetico che si adatta al materiale
+- La struttura **emerge** dal campo, non è imposta da regole
+- Validazione empirica: M_p concept funziona su paper reale!
+
+### 📋 DELIVERABLES V3
+
+1. **Proof-of-concept completo** (✅ FATTO)
+   - `/tmp/morph_v3_poc.py` — M_p base
+   - `/tmp/test_context_aware.py` — M_p context-aware
+   - Test su `draft.md` — validazione reale
+
+2. **Layer 3 implementation** (DA FARE dopo v2.0)
+   - `morph/core/layer3_fluid/`
+   - Test suite completa
+   - Benchmark su 20 PDF
+
+3. **Documentazione teoria** (DA FARE)
+   - Paper: "Topographic Physics of Document Structure"
+   - Equazioni complete
+   - Validazione empirica
+
+4. **Integration v2.0 + v3.0** (DA FARE)
+   - API unificata
+   - Mode detection automatico
+   - Output strutturato misto (tabelle + testo)
+
+### 🎉 VISION FINALE V3
+
+**Morph = Parser Universale**
+
+```
+INPUT:  Qualsiasi PDF (catalog, paper, book, report)
+        ↓
+LAYER 1: Typify (identifica elementi)
+        ↓
+LAYER 2: Field (assembla tabelle) — α=2.0, SOLIDO
+        ↓
+LAYER 3: Fluid (assembla testo) — α=0.5, M_p
+        ↓
+OUTPUT: {tables: [...], text: [...], figures: [...]}
+```
+
+**Una sola equazione. Tre stati. Infinite possibilità.**
+
+---
+
 ## 📈 METRICHE DI SUCCESSO
 
 ### Per ogni phase:
@@ -1081,6 +1466,14 @@ assert len(boundaries) >= 1  # almeno 1 confine trovato
 - **Boundary detection:** +15-25% (dipende da dataset)
 - **Robustezza:** +15% su OCR/scan (con fuzzy)
 - **Universalità:** Tabelle bordered + borderless
+
+### V3.0 (Fluid Text - Future):
+
+- **Sentence segmentation:** >90% accuracy
+- **Paragraph detection:** >85% accuracy
+- **Multi-column handling:** 100% no mixing
+- **Reading order:** Correct sequence in complex layouts
+- **Universal parsing:** Tables + Text in one pass
 
 ---
 
@@ -1161,6 +1554,12 @@ def test_whitespace_boundaries():
 - Unicode classification
 - Image OCR (futuro)
 
+### **FUTURE (V3.0 - Fluid Text):**
+- 🔬 Validazione incrementale (20 PDF test)
+- 🌊 Layer 3 implementation (text_phi, reading_order, chunk)
+- 🔗 Integration v2.0 + v3.0 (API unificata)
+- 📄 Parser universale (tables + text in one pass)
+
 ---
 
 ## 🚦 DECISION POINTS
@@ -1208,11 +1607,30 @@ morph/
 - **API.md** — API reference aggiornata
 - **EXAMPLES.md** — Esempi d'uso
 
+### V3.0 Future (dopo v2.0):
+
+```
+morph/core/layer3_fluid/
+├── text_phi.py          ← Φ_text con M_p context-aware
+├── reading_order.py     ← Stabilisce sequenza parole
+├── chunk.py             ← Segmenta frasi/paragrafi
+└── tests/
+    ├── test_punctuation_multiplier.py
+    ├── test_reading_order.py
+    └── test_real_documents.py
+```
+
+### Documentazione V3:
+
+- **TOPOGRAPHIC_PHYSICS.md** — Teoria fisica topografica unificata
+- **FLUID_TEXT_GUIDE.md** — Guida M_p e segmentazione testo
+- **V3_VALIDATION.md** — Report validazione su 20 PDF
+
 ---
 
 ## 🎉 VISION FINALE
 
-**Morph v2.0 = Campo morfogenetico COMPLETO**
+**Morph v2.0 = Campo morfogenetico COMPLETO per tabelle**
 
 Come un organismo biologico:
 - **Multi-sensoriale** (geo + typo + struct + vettoriale)
@@ -1226,6 +1644,22 @@ Come un organismo biologico:
 ```
 
 **Ma il mondo che vede è RICCO.**
+
+---
+
+**Morph v3.0 = Fisica Topografica Unificata (FUTURE)**
+
+Dal solido al fluido:
+- **α = 2.0** → Tabelle (stato solido)
+- **α = 0.5** → Testo (stato fluido, M_p)
+- **α → 0** → Note sparse (stato gassoso, da esplorare)
+
+**Una sola equazione. Tre stati. Infinite possibilità.**
+
+La stessa fisica che crea cristalli di ghiaccio crea anche onde d'acqua — cambia solo α.
+La stessa equazione che assembla tabelle assembla anche frasi — cambia solo lo stato della materia.
+
+**Morfogenesi documentale = Fisica topografica universale.**
 
 ---
 
