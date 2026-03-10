@@ -28,8 +28,7 @@ from collections import defaultdict
 
 # Morph imports
 from morph.io.reader import open_pdf
-from morph.core.typify import extract_particles
-from morph.core.field import extract_page
+from morph.core import extract_particles, extract_page
 from morph.bench.grits import evaluate_grits
 from morph.bench.pubtables import parse_gt
 

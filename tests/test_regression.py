@@ -22,7 +22,7 @@ class TestTypifyWord:
 
     @pytest.fixture(autouse=True)
     def _import(self):
-        from morph.core.typify import typify_word
+        from morph.core import typify_word
         self.typify = typify_word
 
     # NUMERIC
@@ -102,7 +102,7 @@ class TestExtractParticles:
         return FakePage()
 
     def test_particles_have_required_fields(self):
-        from morph.core.typify import extract_particles
+        from morph.core import extract_particles
         import re
         page = self._make_fake_page()
         model_pats = [re.compile(r'^RAS-\d')]
@@ -120,7 +120,7 @@ class TestExtractParticles:
             )
 
     def test_known_types_detected(self):
-        from morph.core.typify import extract_particles
+        from morph.core import extract_particles
         import re
         page = self._make_fake_page()
         model_pats = [re.compile(r'^RAS-\d')]
@@ -178,7 +178,7 @@ class TestSensePage:
     """sense_page deve rilevare struttura da particelle spaziali."""
 
     def test_returns_dict_with_particles(self):
-        from morph.core.sense import sense_page
+        from morph.core import sense_page
         particles = _make_table_particles()
         result = sense_page(particles)
 
@@ -188,21 +188,21 @@ class TestSensePage:
         assert len(result['particles']) > 0
 
     def test_returns_stats_keys(self):
-        from morph.core.sense import sense_page
+        from morph.core import sense_page
         result = sense_page(_make_table_particles())
         for key in ('columns', 'headers', 'specs', 'sections', 'proofread'):
             assert key in result, f"Manca chiave '{key}' nel risultato"
 
     def test_detects_columns(self):
         """Con 3 righe di NUMERIC allineati su x=150 e x=250, deve trovare colonne."""
-        from morph.core.sense import sense_page
+        from morph.core import sense_page
         result = sense_page(_make_table_particles())
         # almeno 1 colonna (idealmente 2)
         assert result['columns'] >= 1
 
     def test_promotes_spec_labels(self):
         """TEXT a sinistra di NUMERIC (COP, Peso, Potenza) → SPEC_LABEL."""
-        from morph.core.sense import sense_page
+        from morph.core import sense_page
         particles = _make_table_particles()
         sense_page(particles)  # modifica in-place
 
@@ -214,7 +214,7 @@ class TestSensePage:
 
     def test_promotes_column_headers(self):
         """TEXT sopra colonne NUMERIC (Model-A, Model-B) → MODEL."""
-        from morph.core.sense import sense_page
+        from morph.core import sense_page
         particles = _make_table_particles()
         result = sense_page(particles)
 
@@ -225,7 +225,7 @@ class TestSensePage:
 
     def test_few_particles_returns_empty(self):
         """Meno di 5 particelle → risultato vuoto, no crash."""
-        from morph.core.sense import sense_page
+        from morph.core import sense_page
         result = sense_page([
             {'text': 'x', 'x': 0, 'y': 0, 'x0': 0, 'y0': 0,
              'x1': 10, 'y1': 10, 'type': 'TEXT', 'size': 9},
@@ -240,7 +240,7 @@ class TestSenseUtilities:
     """Test funzioni di supporto del sensing."""
 
     def test_group_into_rows(self):
-        from morph.core.sense import _group_into_rows
+        from morph.core.layer1b_sense.rows import _group_into_rows
         particles = [
             {'y0': 100, 'x': 50},
             {'y0': 101, 'x': 150},   # stessa riga
@@ -265,7 +265,7 @@ class TestFieldEquation:
 
     def test_phi_positive_for_matching_types(self):
         """Phi(NUMERIC → SPEC_LABEL) deve essere > 0 se vicini."""
-        from morph.core.field import _phi, DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
+        from morph.core.layer2_field.phi import _phi, DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
 
         num = {'x': 150, 'y': 100, 'type': 'NUMERIC'}
         spec = {'x': 50, 'y': 100, 'type': 'SPEC_LABEL'}  # stessa riga
@@ -275,7 +275,7 @@ class TestFieldEquation:
 
     def test_phi_zero_for_text(self):
         """Phi(NUMERIC → TEXT) deve essere 0 o negativo (W <= 0)."""
-        from morph.core.field import _phi, DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
+        from morph.core.layer2_field.phi import _phi, DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
 
         num = {'x': 150, 'y': 100, 'type': 'NUMERIC'}
         text = {'x': 50, 'y': 100, 'type': 'TEXT'}
@@ -285,7 +285,7 @@ class TestFieldEquation:
 
     def test_phi_decays_with_distance(self):
         """Phi deve decadere all'aumentare della distanza."""
-        from morph.core.field import _phi, DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
+        from morph.core.layer2_field.phi import _phi, DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
 
         num = {'x': 150, 'y': 100, 'type': 'NUMERIC'}
         spec_near = {'x': 50, 'y': 100, 'type': 'SPEC_LABEL'}
@@ -299,7 +299,7 @@ class TestFieldEquation:
 
     def test_phi_col_axis(self):
         """Phi sull'asse col (NUMERIC → MODEL) deve funzionare."""
-        from morph.core.field import _phi, DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
+        from morph.core.layer2_field.phi import _phi, DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
 
         num = {'x': 150, 'y': 100, 'type': 'NUMERIC'}
         model = {'x': 150, 'y': 50, 'type': 'MODEL'}  # sopra, stessa colonna
@@ -308,7 +308,7 @@ class TestFieldEquation:
         assert phi > 0
 
     def test_parse_z_norm(self):
-        from morph.core.field import _parse_z_norm
+        from morph.core.layer2_field.phi import _parse_z_norm
 
         # z = log10(|v| + 1)
         assert _parse_z_norm("4.50") == pytest.approx(math.log10(5.5), abs=0.01)
@@ -321,7 +321,7 @@ class TestFieldEquation:
 
     def test_phi_with_z(self):
         """Phi con lambda_z > 0: valori con z simile più attratti."""
-        from morph.core.field import _phi, DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
+        from morph.core.layer2_field.phi import _phi, DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
 
         num = {'x': 150, 'y': 100, 'type': 'NUMERIC', 'z_norm': 0.7}
         spec_same_z = {'x': 50, 'y': 100, 'type': 'SPEC_LABEL', 'z_norm': 0.7}
@@ -340,7 +340,7 @@ class TestCalibration:
     """Test auto-calibrazione sigma e lambda_z."""
 
     def test_calibrate_sigma_returns_tuple(self):
-        from morph.core.field import calibrate_sigma
+        from morph.core.layer2_field.calibrate import calibrate_sigma
         particles = _make_table_particles()
         sy, sx = calibrate_sigma(particles)
         assert isinstance(sy, float)
@@ -350,7 +350,7 @@ class TestCalibration:
 
     def test_calibrate_sigma_few_particles(self):
         """Con poche particelle, ritorna default."""
-        from morph.core.field import calibrate_sigma, DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
+        from morph.core.layer2_field.calibrate import calibrate_sigma, DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
         sy, sx = calibrate_sigma([
             {'x': 0, 'y': 0, 'type': 'NUMERIC'},
         ])
@@ -358,7 +358,7 @@ class TestCalibration:
         assert sx == DEFAULT_SIGMA_X
 
     def test_calibrate_lambda_z(self):
-        from morph.core.field import calibrate_lambda_z, DEFAULT_SIGMA_Y
+        from morph.core.layer2_field.calibrate import calibrate_lambda_z, DEFAULT_SIGMA_Y
         numerics = [
             {'y': 100, 'z_norm': 0.7},
             {'y': 100, 'z_norm': 0.72},
@@ -376,8 +376,8 @@ class TestExtractPage:
 
     def test_extract_returns_structure(self):
         """extract_page su particelle sensed deve ritornare struttura."""
-        from morph.core.sense import sense_page
-        from morph.core.field import extract_page
+        from morph.core import sense_page
+        from morph.core import extract_page
 
         particles = _make_table_particles()
         sensed = sense_page(particles)
@@ -390,8 +390,8 @@ class TestExtractPage:
 
     def test_extract_maps_values(self):
         """Con tabella ben formata, deve mappare almeno qualche valore."""
-        from morph.core.sense import sense_page
-        from morph.core.field import extract_page
+        from morph.core import sense_page
+        from morph.core import extract_page
 
         particles = _make_table_particles()
         sensed = sense_page(particles)
@@ -405,7 +405,7 @@ class TestExtractPage:
 
     def test_extract_empty_page(self):
         """Pagina senza NUMERIC → risultato vuoto."""
-        from morph.core.field import extract_page
+        from morph.core import extract_page
         result = extract_page([
             {'text': 'Hello', 'x': 50, 'y': 100, 'type': 'TEXT', 'size': 9},
         ])
@@ -457,22 +457,22 @@ class TestConstants:
     """Verifica che le costanti calibrate non cambino per errore."""
 
     def test_alpha(self):
-        from morph.core.field import ALPHA
+        from morph.core.layer2_field.phi import ALPHA
         assert ALPHA == 0.5
 
     def test_default_sigma(self):
-        from morph.core.field import DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
+        from morph.core.layer2_field.phi import DEFAULT_SIGMA_Y, DEFAULT_SIGMA_X
         assert DEFAULT_SIGMA_Y == 6.0
         assert DEFAULT_SIGMA_X == 30.0
 
     def test_w_matrix_keys(self):
-        from morph.core.field import W
+        from morph.core.layer2_field.phi import W
         assert ('NUMERIC', 'SPEC_LABEL') in W
         assert ('NUMERIC', 'MODEL') in W
         assert W[('NUMERIC', 'SPEC_LABEL')] == 1.0
 
     def test_particle_types(self):
-        from morph.core.typify import PARTICLE_TYPES
+        from morph.core import PARTICLE_TYPES
         assert len(PARTICLE_TYPES) == 8
         assert 'NUMERIC' in PARTICLE_TYPES
         assert 'TEXT' in PARTICLE_TYPES
@@ -486,20 +486,20 @@ class TestNaturalThreshold:
 
     def test_basic_break(self):
         """Gap [1, 2, 3, 30, 35] → soglia tra 3 e 30 (break evidente)."""
-        from morph.core.sense import _natural_threshold
+        from morph.core.layer1b_sense.columns import _natural_threshold
         t = _natural_threshold([1, 2, 3, 30, 35])
         assert 3 < t < 30, f"Soglia fuori range: {t}"
 
     def test_no_break(self):
         """Gap [10, 11, 12, 13] → nessun break naturale (ratio < 1.5)."""
-        from morph.core.sense import _natural_threshold
+        from morph.core.layer1b_sense.columns import _natural_threshold
         t = _natural_threshold([10, 11, 12, 13])
         # nessun break → threshold sopra tutti (>13)
         assert t > 13, f"Soglia {t} indica un break dove non c'e'"
 
     def test_few_gaps_returns_median(self):
         """Con <3 gap, ritorna la mediana."""
-        from morph.core.sense import _natural_threshold
+        from morph.core.layer1b_sense.columns import _natural_threshold
         assert _natural_threshold([5, 15]) == 10.0
         assert _natural_threshold([]) == 10  # fallback
 
@@ -631,9 +631,9 @@ class TestFullPipeline:
 
     def test_pipeline_no_crash(self):
         """Il pipeline completo non deve crashare su input valido."""
-        from morph.core.typify import typify_word
-        from morph.core.sense import sense_page
-        from morph.core.field import extract_page
+        from morph.core import typify_word
+        from morph.core import sense_page
+        from morph.core import extract_page
 
         # Costruisci particelle "a mano" (come se venissero da typify)
         particles = _make_table_particles()
@@ -649,7 +649,7 @@ class TestFullPipeline:
 
     def test_pipeline_types_evolve(self):
         """Dopo sensing, alcuni TEXT devono diventare SPEC_LABEL o MODEL."""
-        from morph.core.sense import sense_page
+        from morph.core import sense_page
 
         particles = _make_table_particles()
         types_before = [p['type'] for p in particles]
@@ -671,7 +671,7 @@ class TestNNColumnEvidence:
 
     @pytest.fixture(autouse=True)
     def _import(self):
-        from morph.core.sense import _nn_column_evidence
+        from morph.core.layer1b_sense.columns import _nn_column_evidence
         self.nn_ev = _nn_column_evidence
 
     def test_equispaced_columns(self):
@@ -745,7 +745,7 @@ class TestCrystallizeColumns:
 
     @pytest.fixture(autouse=True)
     def _import(self):
-        from morph.core.sense import _crystallize_columns
+        from morph.core.layer1b_sense.columns import _crystallize_columns
         self.crystal = _crystallize_columns
 
     def test_three_columns_clear(self):

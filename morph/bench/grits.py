@@ -40,9 +40,8 @@ from multiprocessing import Pool
 import numpy as np
 
 from morph.bench.grid import _group_into_rows, _count_cols_ratio
-from morph.core.sense import (
-    _natural_threshold, _crystallize_columns, _estimate_row_spacing_all,
-)
+from morph.core.layer1b_sense.columns import _natural_threshold, _crystallize_columns
+from morph.core.layer1b_sense.rows import _estimate_row_spacing_all
 from morph.bench.pubtables import (
     find_pairs as find_pairs_pubtables,
     json_to_particles,

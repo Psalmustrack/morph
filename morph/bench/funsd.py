@@ -35,9 +35,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from morph.core.typify import typify_word
-from morph.core.sense import sense_page
-from morph.core.field import extract_page
+from morph.core import typify_word, sense_page, extract_page
 
 # Default dataset path — override with FUNSD_ROOT env var
 DATASET = Path(

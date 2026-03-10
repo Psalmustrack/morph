@@ -9,9 +9,9 @@ the spatial distribution — no grid search, no neural network.
 
 Architecture (3-layer pipeline)::
 
-    Layer 1  (core.typify)  — Gene expression: classify words by content
-    Layer 1b (core.sense)   — Cellular differentiation: promote types by context
-    Layer 2  (core.field)   — Tissue formation: the morphogenetic field equation
+    Layer 1  (layer1_typify)   — Gene expression: classify words by content
+    Layer 1b (layer1b_sense)   — Cellular differentiation: promote types by context
+    Layer 2  (layer2_field)    — Tissue formation: the morphogenetic field equation
 
 Key result: 95.2% health on 6,238 pages across 5 HVAC brands.
 GriTS_Top: 79.7% PubTables-1M, 77.6% FinTabNet — cross-domain gap 2.1pp.
@@ -19,8 +19,7 @@ GriTS_Top: 79.7% PubTables-1M, 77.6% FinTabNet — cross-domain gap 2.1pp.
 Quick start::
 
     from morph.io.reader import open_pdf
-    from morph.core.typify import extract_particles
-    from morph.core.field import extract_page
+    from morph.core import extract_particles, extract_page
     from morph.brands import get_brand_patterns
 
     model_pats, size_pats = get_brand_patterns('hitachi')

@@ -408,7 +408,7 @@ def reaction_diffusion_v2(particles: list[dict],
 def run_standard_sensing(particles: list[dict]) -> list[dict]:
     ps = copy.deepcopy(particles)
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from morph.core.sense import sense_page
+    from morph.core import sense_page
     result = sense_page(ps)
     return result['particles']
 

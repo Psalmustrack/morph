@@ -120,7 +120,7 @@ def extract_particles(page,
     particles = _merge_fragments(particles, model_patterns, size_patterns)
 
     # Layer 1b: spatial sensing promotes TEXT → structural types
-    from morph.core.sense import sense_page
+    from morph.core import sense_page
 
     # v2.0 Phase 6: Extract drawings for hybrid boundary detection
     drawings = None

@@ -14,8 +14,8 @@ from pathlib import Path
 
 # Morph imports
 from morph.io.reader import open_pdf
-from morph.core.typify import extract_particles
-from morph.core.sense import detect_columns, _extract_vertical_lines
+from morph.core import extract_particles, detect_columns
+from morph.core.layer1b_sense.columns import _extract_vertical_lines
 
 # Test file
 PDF_PATH = '/mnt/dati/home/Progetti/dots.ocr/brands/daikin/input/20220412 VRV 5 HR.pdf'

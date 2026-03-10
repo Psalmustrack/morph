@@ -40,8 +40,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from morph.io.reader import open_pdf
-from morph.core.typify import extract_particles
-from morph.core.field import extract_page
+from morph.core import extract_particles, extract_page
 from morph.brands import get_brand_patterns, AVAILABLE_BRANDS
 from morph.io.graph import morpho_to_graph
 from morph.io.sql import graph_to_rows

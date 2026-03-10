@@ -23,13 +23,13 @@ from pathlib import Path
 # Setup paths
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from morph.core.typify import typify_word
-from morph.core.sense import sense_page
-from morph.core.field import (
-    _phi, calibrate_sigma, merge_multiline_specs,
-    calibrate_lambda_z, _parse_z_norm, _assign_z_to_specs,
+from morph.core import typify_word, sense_page
+from morph.core.layer2_field.phi import (
+    _phi, _parse_z_norm, _assign_z_to_specs,
     COL_TYPES, ALPHA
 )
+from morph.core.layer2_field.calibrate import calibrate_sigma, calibrate_lambda_z
+from morph.core.layer2_field.merge import merge_multiline_specs
 from morph.bench.pubtables import (
     json_to_particles, parse_gt, _gt_cell, find_pairs,
 )

@@ -16,8 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from morph.core.typify import typify_word
-from morph.core.sense import sense_page
+from morph.core import typify_word, sense_page
 from morph.bench.pubtables import json_to_particles, find_pairs
 
 

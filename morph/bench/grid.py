@@ -24,11 +24,8 @@ from collections import Counter
 
 # Principi percettivi dal core — il sensing li usa per capire lo spazio,
 # il benchmark li riusa per tradurre in griglia.
-from morph.core.sense import (
-    _natural_threshold,
-    _estimate_row_spacing_all,
-    _group_into_rows,
-)
+from morph.core.layer1b_sense.columns import _natural_threshold
+from morph.core.layer1b_sense.rows import _estimate_row_spacing_all, _group_into_rows
 
 
 

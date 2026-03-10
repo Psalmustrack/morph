@@ -20,12 +20,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from morph.io.reader import open_pdf
-from morph.core.typify import extract_particles
-from morph.core.sense import sense_page, _group_into_rows, _natural_threshold
-from morph.core.field import (
-    extract_page, merge_multiline_specs, calibrate_sigma,
-    _parse_z_norm, _assign_z_to_specs, calibrate_lambda_z,
-    _phi, COL_TYPES, ROW_TYPES,
+from morph.core import extract_particles, sense_page, extract_page
+from morph.core.layer1b_sense.rows import _group_into_rows
+from morph.core.layer1b_sense.columns import _natural_threshold
+from morph.core.layer2_field.merge import merge_multiline_specs
+from morph.core.layer2_field.calibrate import calibrate_sigma, calibrate_lambda_z
+from morph.core.layer2_field.phi import (
+    _parse_z_norm, _assign_z_to_specs, _phi,
+    COL_TYPES, ROW_TYPES,
 )
 from morph.brands import get_brand_patterns
 

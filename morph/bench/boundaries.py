@@ -26,10 +26,8 @@ import random
 import time
 from multiprocessing import Pool
 
-from morph.core.sense import (
-    _natural_threshold, _group_into_rows, _nn_column_evidence,
-    _crystallize_columns,
-)
+from morph.core.layer1b_sense.columns import _natural_threshold, _nn_column_evidence, _crystallize_columns
+from morph.core.layer1b_sense.rows import _group_into_rows
 from morph.bench.grid import _group_into_columns
 from morph.bench.pubtables import (
     find_pairs as find_pairs_pubtables,

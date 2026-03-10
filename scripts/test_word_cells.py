@@ -26,7 +26,8 @@ from pathlib import Path
 # Assicurati che morph sia importabile
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from morph.core.sense import _natural_threshold, _group_into_rows
+from morph.core.layer1b_sense.columns import _natural_threshold
+from morph.core.layer1b_sense.rows import _group_into_rows
 from morph.bench.boundaries import (
     find_pairs_hvac,
     _assign_gt_column,

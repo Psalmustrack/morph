@@ -29,10 +29,8 @@ from collections import Counter, defaultdict
 from multiprocessing import Pool
 from pathlib import Path
 
-from morph.core.typify import typify_word
-from morph.core.sense import sense_page
+from morph.core import typify_word, sense_page, extract_page
 from morph.bench.grid import count_columns_universal, count_rows_universal
-from morph.core.field import extract_page
 
 # Default dataset path — override with PUBTABLES_ROOT env var
 DATASET = Path(
