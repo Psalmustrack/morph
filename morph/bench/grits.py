@@ -1040,6 +1040,65 @@ def find_col_splits_ratio_crystal(
     return best_boundaries
 
 
+def find_col_splits_max_crystal(
+    particles: list[dict],
+    k: float = 0.3,
+) -> list[float]:
+    """MAX method + crystal rescue — use MAX col count instead of MODE.
+
+    Spanning cells cause header rows to vote for fewer columns than body rows.
+    Using MAX instead of MODE prefers the fullest row, which typically has
+    the correct column count.
+
+    When MAX says 1 column, tries _crystallize_columns as rescue.
+    """
+    if len(particles) < 2:
+        return []
+    rows = _group_into_rows(particles)
+
+    votes, row_data = [], []
+    for row in rows:
+        if len(row) < 2:
+            continue
+        n = _count_cols_ratio(row, k=k)
+        votes.append(n)
+        row_data.append((row, n))
+    if not votes:
+        return []
+
+    max_cols = max(votes)
+
+    # Crystal rescue: max vede 1 colonna, crystal potrebbe trovare split
+    if max_cols <= 1:
+        crystal_bounds = _crystallize_columns(particles)
+        if crystal_bounds and len(crystal_bounds) <= 20:
+            return crystal_bounds
+        return []
+
+    # Find the row with max_cols and largest particle count
+    best_boundaries: list[float] = []
+    best_size = 0
+    for row, n in row_data:
+        if n == max_cols and len(row) > best_size:
+            ps = sorted(row, key=lambda p: p['x0'])
+            widths = [p['x1'] - p['x0'] for p in ps]
+            gaps = [ps[i + 1]['x0'] - ps[i]['x1']
+                    for i in range(len(ps) - 1)]
+            avg_w = sum(widths) / len(widths) if widths else 10
+            if avg_w <= 0:
+                avg_w = 10
+            threshold = avg_w * k
+            boundaries = [
+                (ps[i]['x1'] + ps[i + 1]['x0']) / 2
+                for i, g in enumerate(gaps)
+                if g > threshold
+            ]
+            if len(boundaries) == max_cols - 1:
+                best_boundaries = boundaries
+                best_size = len(row)
+    return best_boundaries
+
+
 # ---------------------------------------------------------------------------
 # Single-table evaluation
 # ---------------------------------------------------------------------------
@@ -1103,6 +1162,8 @@ def evaluate_grits(
         col_splits = find_col_splits_natural(particles)
     elif method == 'ratio+crystal':
         col_splits = find_col_splits_ratio_crystal(particles)
+    elif method == 'max+crystal':
+        col_splits = find_col_splits_max_crystal(particles)
     else:
         col_splits = find_col_splits_ratio(particles)
     if row_method == 'natural':
@@ -1217,9 +1278,9 @@ def main():
                         help='Topology only (skip GriTS_Con)')
     parser.add_argument('--dataset', choices=['pubtables', 'fintabnet'],
                         default='pubtables')
-    parser.add_argument('--method', choices=['ratio', 'natural', 'ratio+crystal'],
+    parser.add_argument('--method', choices=['ratio', 'natural', 'ratio+crystal', 'max+crystal'],
                         default='ratio',
-                        help='Column detection: ratio (k=0.3), natural (threshold+crystal), ratio+crystal (ratio + crystal rescue)')
+                        help='Column detection: ratio (mode), natural (threshold+crystal), ratio+crystal (mode + rescue), max+crystal (max + rescue)')
     parser.add_argument('--row-method', choices=['fixed', 'natural', 'consensus', 'density'],
                         default='fixed',
                         help='Row detection: fixed (k_y ratio), natural (perceptual), consensus (cross-column), density (merge sparse rows)')
@@ -1240,6 +1301,7 @@ def main():
         'ratio': 'ratio k=0.3',
         'natural': 'natural+crystal',
         'ratio+crystal': 'ratio k=0.3 + col crystal',
+        'max+crystal': 'MAX k=0.3 + col crystal',
     }
     row_label = 'natural' if args.row_method == 'natural' else f'k_y={args.ky}'
     print(f"\n{'=' * 65}")
