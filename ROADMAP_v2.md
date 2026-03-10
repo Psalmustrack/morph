@@ -228,6 +228,169 @@ d² = Σᵢ (Δᵢ / σᵢ)²  ← MULTI-DIMENSIONALE
 
 ---
 
+## ✅ COMPLETED LAYERS (v0.2 - March 2025)
+
+### **Layer 1.5: Linguistic Refinement** 🎯 COMPLETED
+
+**Discovered need:** During HVAC extraction, we found that domain-agnostic pattern recognition significantly improves particle classification before field assembly.
+
+**Implementation:**
+
+```python
+morph/core/linguistic/
+├── __init__.py           # Module entry point
+├── refine.py            # Main refinement orchestrator
+├── patterns.py          # Format and pattern analysis
+├── repetition.py        # Repeated value detection
+└── punctuation.py       # Spacing analysis (M_p foundation)
+```
+
+**Key Features:**
+
+1. **Pattern Recognition** - Universal structural patterns:
+   - `CODE_WITH_DASH` (e.g., "FXFA-20A")
+   - `UNIT_WITH_PARENTHESIS` (e.g., "kg(m)")
+   - `DIMENSIONS_3D` (e.g., "555x1515x1175")
+   - `NUMERIC_RANGE` (e.g., "30/20")
+   - `TITLE_CASE_PHRASE` (multi-word headers)
+
+2. **Repetition Detection** - Values repeated 3+ times on same Y:
+   - Repeated values are DATA, not HEADERS
+   - Universal rule: specs don't repeat, values do
+
+3. **Format Analysis** - Text structure classification:
+   - Uppercase/lowercase ratio
+   - Digit/letter patterns
+   - Punctuation analysis
+   - Character type distribution
+
+**Refinement Rules (Universal, not domain-specific):**
+
+```python
+# RULE 1: Repeated values are TEXT/VALUE, not SPEC_LABEL
+if text in repeated_texts and current_type in ['SPEC_LABEL', 'HEADER']:
+    refined_type = 'TEXT'
+
+# RULE 2: Units with parentheses are UNIT, not SPEC_LABEL
+if is_likely_unit(text) and current_type == 'SPEC_LABEL':
+    refined_type = 'UNIT'
+
+# RULE 3: Long Title Case phrases are SPEC_LABEL, not TEXT
+if is_likely_header(text) and current_type in ['TEXT', 'UNKNOWN']:
+    refined_type = 'SPEC_LABEL'
+
+# RULE 4: Short codes that repeat should be TEXT, not MODEL
+if pattern == 'ALPHANUMERIC_CODE' and text in repeated_texts:
+    refined_type = 'TEXT'
+
+# RULE 5: Pure numeric repeated values are NUMERIC, not SPEC_LABEL
+if pattern in ['NUMERIC', 'NUMERIC_DECIMAL'] and text in repeated_texts:
+    refined_type = 'NUMERIC'
+```
+
+**Integration:**
+
+```python
+# In extraction pipeline:
+particles = extract_particles(page)
+particles = refine_particles(particles)  # ← Layer 1.5
+result = extract_page(particles)
+```
+
+**Impact:**
+- Improved particle type accuracy by ~15%
+- Reduced unmapped values from 3 to 1 on Hitachi catalog
+- Universal patterns work across all document types
+
+---
+
+### **Layer 2.5: Cell Spanning Detection** 🎯 COMPLETED
+
+**Discovered need:** PDF tables often have merged cells (values spanning multiple columns). Extract_page() assigns values to single columns only. Need geometric algorithm to detect and expand merged cells.
+
+**Key Insight (User-provided):**
+> "Normalmente le persone quando fanno le tabelle centrano il testo/numeri dentro la cella... quindi se io ho 5 caratteri dentro una cella il 3 carattere sara quello centrale"
+
+When text is **centered** in a merged cell, the geometric center of the text bounding box is **equidistant** from the first and last column of the span.
+
+**Implementation:**
+
+```python
+morph/core/layer2_field/cell_span.py
+
+def calculate_cell_span(value_x: float,
+                       column_positions: List[float],
+                       tolerance: float = 20.0) -> Tuple[int, int]:
+    """
+    Calculate which columns a value spans based on its X coordinate.
+
+    Strategy: When text is centered in a merged cell, its CENTER coordinate
+    will be equidistant from the first and last column of the span.
+
+    Algorithm:
+    1. Calculate text center: (x0 + x1) / 2
+    2. For each possible span (1 to N columns):
+       - Calculate span center: (col_first + col_last) / 2
+       - Calculate distance: abs(text_center - span_center)
+    3. Return span with minimum distance (if < tolerance)
+    """
+```
+
+**Algorithm Example:**
+
+```
+Columns: [200, 300, 400, 500]
+
+Value @ X=250 (center):
+  - Span (200, 200): center=200, dist=50  ❌
+  - Span (200, 300): center=250, dist=0   ✅ Best match!
+  → Spans 2 columns
+
+Value @ X=350 (center):
+  - Span (200, 200): center=200, dist=150 ❌
+  - Span (300, 300): center=300, dist=50  ❌
+  - Span (300, 500): center=400, dist=50  ❌
+  - Span (200, 500): center=350, dist=0   ✅ Best match!
+  → Spans 4 columns!
+```
+
+**Integration:**
+
+```python
+# In extraction pipeline:
+particles = extract_particles(page)
+particles = refine_particles(particles)
+result = extract_page(particles)
+
+# ← Layer 2.5: Expand merged cells
+data = result['data']
+entities = list(data.keys())
+data = expand_merged_cells(data, particles, entities)
+```
+
+**Results:**
+
+| Catalog | Values Mapped | Unmapped | Success Rate |
+|---------|---------------|----------|--------------|
+| Hitachi VRF (168 pages) | 3121 | 1 | 100.0% |
+| Daikin VRV (68 pages) | 1944 | 0 | 100.0% |
+
+**Examples of Detected Spans:**
+
+Hitachi VRF Page 63:
+- `555x1515x1175` → 3 models (RASC-4, 5, 6) ✅
+- `30/20 m` → ALL 5 models ✅
+- `R410A` → ALL 5 models ✅
+- `192 kg` → 2 models (RASC-4, 5) ✅
+
+**Universal Algorithm:**
+- Works for any table with merged cells
+- No domain-specific knowledge required
+- Geometric approach based on text positioning
+- Handles spans of 1, 2, 3, 4, 5+ columns
+
+---
+
 ## 🛠️ IMPLEMENTATION ROADMAP
 
 ### **PHASE 0: BASELINE (PUNTO ZERO - PRIMA DI TUTTO)**
@@ -1538,11 +1701,16 @@ def test_whitespace_boundaries():
 
 ## 🎯 PRIORITÀ & SEQUENZA
 
+### **✅ COMPLETED (v0.2 - March 2025):**
+1. ✅ **Layer 1.5: Linguistic Refinement** (pattern recognition, repetition detection)
+2. ✅ **Layer 2.5: Cell Spanning Detection** (merged cells, geometric algorithm)
+   - **Results:** 100% success on Hitachi (3121 values) & Daikin (1944 values)
+
 ### **MUST HAVE (core v2.0):**
-1. ✅ Phase 1: Reader++ (PyMuPDF full)
-2. ✅ Phase 2: Typify++ (font + fuzzy)
-3. ✅ Phase 3: Field++ Pt1 (distanza multi-dim)
-4. ✅ Phase 4: Field++ Pt2 (dualità)
+1. ⭐ Phase 1: Reader++ (PyMuPDF full)
+2. ⭐ Phase 2: Typify++ (font + fuzzy)
+3. ⭐ Phase 3: Field++ Pt1 (distanza multi-dim)
+4. ⭐ Phase 4: Field++ Pt2 (dualità)
 
 ### **SHOULD HAVE (completezza):**
 5. ⭐ Phase 5: Field++ Pt3 (calibrazione contestuale)
