@@ -236,12 +236,24 @@ def _directed_alignment(pi: dict, pj: dict, axis: str,
 
 def _phi(num: dict, other: dict, axis: str,
          sigma_y: float, sigma_x: float,
-         lambda_z: float = 0.0) -> float:
+         lambda_z: float = 0.0,
+         sigma_font: float = 0.0,
+         sigma_hierarchy: float = 0.0,
+         sigma_color: float = 0.0) -> float:
     """The morphogenetic field potential: Phi(num -> other).
 
-    With lambda_z > 0, distance becomes three-dimensional::
+    v0.1 formula (pure geometric)::
 
-        d3 = sqrt(dx^2 + dy^2 + (lambda_z * dz_norm)^2)
+        d = sqrt(dx^2 + dy^2 + (lambda_z * dz_norm)^2)
+
+    v2.0 formula (multi-dimensional with typography/hierarchy)::
+
+        d² = (dx/σx)² + (dy/σy)² + (df/σf)² + (dh/σh)² + (dc/σc)²
+
+    Where:
+        - df = font affinity (0=same, 1=different)
+        - dh = hierarchy affinity (0=same span, 0.5=same line, 1=different block)
+        - dc = color affinity (0=same, 1=different)
 
     z operates only on the 'row' axis (NUMERIC → SPEC_LABEL).
     For the 'col' axis (NUMERIC → MODEL), z makes no sense:
@@ -254,6 +266,9 @@ def _phi(num: dict, other: dict, axis: str,
         sigma_y: Row tolerance.
         sigma_x: Column tolerance.
         lambda_z: z-axis weight (0 = pure 2D).
+        sigma_font: Font affinity weight (0 = disabled, v2.0).
+        sigma_hierarchy: Hierarchy affinity weight (0 = disabled, v2.0).
+        sigma_color: Color affinity weight (0 = disabled, v2.0).
 
     Returns:
         Field potential value. Higher = stronger structural binding.
@@ -267,6 +282,10 @@ def _phi(num: dict, other: dict, axis: str,
     dx = num['x'] - other['x']
     dy = num['y'] - other['y']
 
+    # Geometric distance (v0.1 compatibility)
+    dx_scaled = dx / sigma_x if sigma_x > 0 else dx
+    dy_scaled = dy / sigma_y if sigma_y > 0 else dy
+
     # z contributes only to row matching (magnitude validation)
     dz_scaled = 0.0
     if axis == 'row' and lambda_z > 0:
@@ -275,7 +294,43 @@ def _phi(num: dict, other: dict, axis: str,
         if z1 is not None and z2 is not None:
             dz_scaled = lambda_z * (z1 - z2)
 
-    d = math.sqrt(dx * dx + dy * dy + dz_scaled * dz_scaled)
+    # Multi-dimensional distance (v2.0)
+    d_squared = dx_scaled * dx_scaled + dy_scaled * dy_scaled + dz_scaled * dz_scaled
+
+    # Font affinity (v2.0)
+    if sigma_font > 0:
+        font1 = num.get('font', '')
+        font2 = other.get('font', '')
+        df = 0.0 if font1 and font2 and font1 == font2 else 1.0
+        d_squared += (df / sigma_font) ** 2
+
+    # Hierarchy affinity (v2.0)
+    if sigma_hierarchy > 0:
+        span1, line1, block1 = num.get('span_num'), num.get('line_num'), num.get('block_num')
+        span2, line2, block2 = other.get('span_num'), other.get('line_num'), other.get('block_num')
+
+        if all(x is not None for x in [span1, line1, block1, span2, line2, block2]):
+            if block1 == block2 and line1 == line2 and span1 == span2:
+                dh = 0.0  # Same span → extremely close
+            elif block1 == block2 and line1 == line2:
+                dh = 0.5  # Same line, different span → close
+            elif block1 == block2:
+                dh = 0.8  # Same block, different line → moderate
+            else:
+                dh = 1.0  # Different block → far
+        else:
+            dh = 1.0  # Missing hierarchy info → assume far
+
+        d_squared += (dh / sigma_hierarchy) ** 2
+
+    # Color affinity (v2.0)
+    if sigma_color > 0:
+        color1 = num.get('color', 0)
+        color2 = other.get('color', 0)
+        dc = 0.0 if color1 == color2 else 1.0
+        d_squared += (dc / sigma_color) ** 2
+
+    d = math.sqrt(d_squared)
     if d < 1.0:
         d = 1.0
 
@@ -415,7 +470,10 @@ def calibrate_sigma(particles: list[dict]) -> tuple[float, float]:
 # Extraction via field — the main algorithm
 # ============================================================
 
-def extract_page(particles: list[dict]) -> dict:
+def extract_page(particles: list[dict],
+                 sigma_font: float = 0.0,
+                 sigma_hierarchy: float = 0.0,
+                 sigma_color: float = 0.0) -> dict:
     """Full page extraction via the morphogenetic field.
 
     Takes typed particles, computes Phi for each NUMERIC, assigns to
@@ -430,8 +488,15 @@ def extract_page(particles: list[dict]) -> dict:
         5. For each NUMERIC: argmax(Phi) → (spec, entity, unit)
         6. Assemble output
 
+    v2.0 Multi-dimensional distance:
+        With sigma_font/hierarchy/color > 0, distance becomes rich:
+        d² = (dx/σx)² + (dy/σy)² + (df/σf)² + (dh/σh)² + (dc/σc)²
+
     Args:
         particles: Particles from typify.extract_particles().
+        sigma_font: Font affinity weight (0 = disabled, v2.0).
+        sigma_hierarchy: Hierarchy affinity weight (0 = disabled, v2.0).
+        sigma_color: Color affinity weight (0 = disabled, v2.0).
 
     Returns:
         Dict with keys:
@@ -492,7 +557,8 @@ def extract_page(particles: list[dict]) -> dict:
         best_spec = None
         best_phi_spec = 0.0
         for s in specs:
-            p = _phi(num, s, 'row', sigma_y, sigma_x, lambda_z)
+            p = _phi(num, s, 'row', sigma_y, sigma_x, lambda_z,
+                     sigma_font, sigma_hierarchy, sigma_color)
             if p > best_phi_spec:
                 best_phi_spec = p
                 best_spec = s
@@ -501,7 +567,8 @@ def extract_page(particles: list[dict]) -> dict:
         best_col = None
         best_phi_col = 0.0
         for c in col_headers:
-            p = _phi(num, c, 'col', sigma_y, sigma_x)
+            p = _phi(num, c, 'col', sigma_y, sigma_x, 0.0,
+                     sigma_font, sigma_hierarchy, sigma_color)
             if p > best_phi_col:
                 best_phi_col = p
                 best_col = c
@@ -510,7 +577,8 @@ def extract_page(particles: list[dict]) -> dict:
         best_unit = None
         best_phi_unit = 0.0
         for u in units:
-            p = _phi(num, u, 'row', sigma_y, sigma_x)
+            p = _phi(num, u, 'row', sigma_y, sigma_x, 0.0,
+                     sigma_font, sigma_hierarchy, sigma_color)
             if p > best_phi_unit:
                 best_phi_unit = p
                 best_unit = u
