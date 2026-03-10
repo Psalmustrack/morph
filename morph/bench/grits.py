@@ -40,7 +40,9 @@ from multiprocessing import Pool
 import numpy as np
 
 from morph.bench.grid import _group_into_rows, _count_cols_ratio
-from morph.core.sense import _natural_threshold, _crystallize_columns
+from morph.core.sense import (
+    _natural_threshold, _crystallize_columns, _estimate_row_spacing_all,
+)
 from morph.bench.pubtables import (
     find_pairs as find_pairs_pubtables,
     json_to_particles,
@@ -563,6 +565,266 @@ def find_row_splits_per_column(
     return best_boundaries, mode_rows
 
 
+def _count_rows_natural(col_particles: list[dict]) -> int:
+    """Count rows in a column using the perceptual principle on Y-gaps.
+
+    Applies _natural_threshold to vertical gaps between consecutive
+    particles in a column, instead of a fixed k_y ratio.
+    """
+    if len(col_particles) < 2:
+        return max(1, len(col_particles))
+    sorted_ps = sorted(col_particles, key=lambda p: p['y0'])
+    gaps = []
+    for i in range(1, len(sorted_ps)):
+        g = sorted_ps[i]['y0'] - sorted_ps[i - 1]['y1']
+        if g > 0.5:
+            gaps.append(g)
+    if len(gaps) < 2:
+        return 1
+    threshold = _natural_threshold(gaps)
+    return 1 + sum(1 for g in gaps if g > threshold)
+
+
+def find_row_splits_natural(
+    particles: list[dict],
+    col_splits: list[float],
+) -> tuple[list[float], int]:
+    """Find Y row boundaries using perceptual principle + column voting.
+
+    Each column votes for a row count via _natural_threshold on its
+    Y-gaps.  Mode wins.  Boundaries extracted from the best column.
+    """
+    n_cols = len(col_splits) + 1
+    columns: list[list[dict]] = [[] for _ in range(n_cols)]
+    for p in particles:
+        c = sum(1 for sx in col_splits if p['x'] > sx)
+        columns[min(c, n_cols - 1)].append(p)
+
+    votes = []
+    col_data = []
+    for col_ps in columns:
+        if len(col_ps) < 2:
+            continue
+        n = _count_rows_natural(col_ps)
+        votes.append(n)
+        col_data.append((col_ps, n))
+
+    if not votes:
+        return [], 1
+
+    mode_rows = Counter(votes).most_common(1)[0][0]
+    if mode_rows <= 1:
+        return [], 1
+
+    # Extract boundaries from the column with mode count and most particles
+    best_boundaries: list[float] = []
+    best_size = 0
+    for col_ps, n in col_data:
+        if n == mode_rows and len(col_ps) > best_size:
+            sorted_ps = sorted(col_ps, key=lambda p: p['y0'])
+            gaps = []
+            positions = []
+            for i in range(1, len(sorted_ps)):
+                g = sorted_ps[i]['y0'] - sorted_ps[i - 1]['y1']
+                if g > 0.5:
+                    gaps.append(g)
+                    positions.append(
+                        (sorted_ps[i - 1]['y1'] + sorted_ps[i]['y0']) / 2,
+                    )
+            threshold = _natural_threshold(gaps)
+            boundaries = [pos for g, pos in zip(gaps, positions)
+                          if g > threshold]
+            if len(boundaries) == mode_rows - 1:
+                best_boundaries = boundaries
+                best_size = len(col_ps)
+
+    return best_boundaries, mode_rows
+
+
+def group_rows_natural(
+    particles: list[dict],
+    col_splits: list[float],
+) -> list[list[dict]]:
+    """Group particles into rows using perceptual row detection.
+
+    Falls back to proximity grouping if no splits are found.
+    """
+    row_splits, mode_rows = find_row_splits_natural(particles, col_splits)
+    if not row_splits:
+        return _group_into_rows(particles)
+    rows: list[list[dict]] = [[] for _ in range(mode_rows)]
+    for p in particles:
+        r = sum(1 for sy in row_splits if p['y0'] > sy)
+        rows[min(r, mode_rows - 1)].append(p)
+    return [r for r in rows if r]
+
+
+def find_row_splits_consensus(
+    particles: list[dict],
+    col_splits: list[float],
+    k_y: float = 0.1,
+    min_col_ratio: float = 0.4,
+) -> list[float]:
+    """Find Y row boundaries using cross-column consensus.
+
+    Detects gap positions per column (using k_y), then keeps only
+    boundaries that appear in >= min_col_ratio of columns.
+
+    This filters out multi-line cell breaks (visible in 1-2 columns)
+    while keeping real row boundaries (visible across most columns).
+    """
+    n_cols = len(col_splits) + 1
+    columns: list[list[dict]] = [[] for _ in range(n_cols)]
+    for p in particles:
+        c = sum(1 for sx in col_splits if p['x'] > sx)
+        columns[min(c, n_cols - 1)].append(p)
+
+    # Collect all gap Y-positions from all columns
+    all_gap_ys: list[float] = []
+    active_cols = 0
+    for col_ps in columns:
+        if len(col_ps) < 2:
+            continue
+        active_cols += 1
+        sorted_ps = sorted(col_ps, key=lambda p: p['y0'])
+        heights = [p['y1'] - p['y0'] for p in sorted_ps if p['y1'] > p['y0']]
+        if not heights:
+            continue
+        avg_h = max(3.0, min(30.0, sum(heights) / len(heights)))
+        threshold = avg_h * k_y
+        for i in range(1, len(sorted_ps)):
+            gap = sorted_ps[i]['y0'] - sorted_ps[i - 1]['y1']
+            if gap > threshold:
+                mid_y = (sorted_ps[i - 1]['y1'] + sorted_ps[i]['y0']) / 2
+                all_gap_ys.append(mid_y)
+
+    if not all_gap_ys or active_cols < 2:
+        return []
+
+    # Cluster gap Y-positions: gaps within tolerance are the same boundary
+    row_spacing = _estimate_row_spacing_all(particles)
+    y_tol = max(3.0, row_spacing * 0.4)
+
+    all_gap_ys.sort()
+    clusters: list[list[float]] = [[all_gap_ys[0]]]
+    for gy in all_gap_ys[1:]:
+        if gy - clusters[-1][-1] < y_tol:
+            clusters[-1].append(gy)
+        else:
+            clusters.append([gy])
+
+    # Keep only clusters supported by enough columns
+    min_support = max(2, int(active_cols * min_col_ratio))
+    consensus_splits = []
+    for cluster in clusters:
+        if len(cluster) >= min_support:
+            consensus_splits.append(sum(cluster) / len(cluster))
+
+    return consensus_splits
+
+
+def group_rows_consensus(
+    particles: list[dict],
+    col_splits: list[float],
+    k_y: float = 0.1,
+    min_col_ratio: float = 0.4,
+) -> list[list[dict]]:
+    """Group particles into rows using cross-column consensus.
+
+    Falls back to proximity grouping if no consensus splits found.
+    """
+    row_splits = find_row_splits_consensus(
+        particles, col_splits, k_y=k_y, min_col_ratio=min_col_ratio,
+    )
+    if not row_splits:
+        return _group_into_rows(particles)
+    n_rows = len(row_splits) + 1
+    rows: list[list[dict]] = [[] for _ in range(n_rows)]
+    for p in particles:
+        r = sum(1 for sy in row_splits if p['y0'] > sy)
+        rows[min(r, n_rows - 1)].append(p)
+    return [r for r in rows if r]
+
+
+def group_rows_density(
+    particles: list[dict],
+    col_splits: list[float],
+    k_y: float = 0.1,
+    min_fill: float = 0.3,
+) -> list[list[dict]]:
+    """Group particles into rows, then merge sparse rows with neighbours.
+
+    Strategy:
+    1. Detect initial row splits with sensitive k_y (catches everything).
+    2. Assign particles to initial rows.
+    3. For each row, compute "fill ratio" = fraction of columns that contain
+       at least one particle.
+    4. If a row has fill < min_fill, merge it with the adjacent row that is
+       spatially closest (by median Y).
+
+    A "full" row (e.g. data row with values in every column) has fill ~1.0.
+    A "sparse" row (e.g. second line of a multi-line header in column 0)
+    has fill ~0.1–0.2.  Merging sparse rows fixes over-segmentation.
+    """
+    # Step 1: get initial (over-segmented) row splits
+    row_splits, mode_rows = find_row_splits_per_column(
+        particles, col_splits, k_y,
+    )
+    if not row_splits:
+        return _group_into_rows(particles)
+
+    n_cols = len(col_splits) + 1
+
+    # Step 2: assign particles to initial rows
+    n_init = len(row_splits) + 1
+    rows: list[list[dict]] = [[] for _ in range(n_init)]
+    for p in particles:
+        r = sum(1 for sy in row_splits if p['y0'] > sy)
+        rows[min(r, n_init - 1)].append(p)
+    rows = [r for r in rows if r]
+
+    if len(rows) <= 1:
+        return rows
+
+    # Step 3: compute fill ratio for each row
+    def fill_ratio(row_particles: list[dict]) -> float:
+        cols_hit = set()
+        for p in row_particles:
+            c = sum(1 for sx in col_splits if p['x'] > sx)
+            cols_hit.add(min(c, n_cols - 1))
+        return len(cols_hit) / n_cols
+
+    # Step 4: iteratively merge sparse rows into neighbours
+    changed = True
+    while changed:
+        changed = False
+        fills = [fill_ratio(r) for r in rows]
+        for i in range(len(rows)):
+            if fills[i] >= min_fill:
+                continue
+            # This row is sparse — merge with closest neighbour
+            median_y_i = sorted(p['y0'] for p in rows[i])[len(rows[i]) // 2]
+            best_j = None
+            best_dist = float('inf')
+            for j in [i - 1, i + 1]:
+                if 0 <= j < len(rows):
+                    median_y_j = sorted(
+                        p['y0'] for p in rows[j]
+                    )[len(rows[j]) // 2]
+                    d = abs(median_y_i - median_y_j)
+                    if d < best_dist:
+                        best_dist = d
+                        best_j = j
+            if best_j is not None:
+                # Merge i into best_j
+                rows[best_j].extend(rows[i])
+                rows.pop(i)
+                changed = True
+                break  # restart loop with updated list
+
+    return [r for r in rows if r]
+
+
 def group_rows_per_column(
     particles: list[dict],
     col_splits: list[float],
@@ -788,6 +1050,7 @@ def evaluate_grits(
     top_only: bool = False,
     k_y: float = 0.1,
     method: str = 'ratio',
+    row_method: str = 'fixed',
 ) -> dict | None:
     """Compute GriTS_Top (and optionally GriTS_Con) for one table.
 
@@ -795,8 +1058,9 @@ def evaluate_grits(
         json_path: Path to ``_words.json`` file.
         xml_path: Path to ``.xml`` ground truth.
         top_only: Skip GriTS_Con (faster).
-        k_y: Row detection boundary constant.
-        method: ``'ratio'`` (fixed k=0.3) or ``'natural'`` (threshold + crystal).
+        k_y: Row detection boundary constant (used when row_method='fixed').
+        method: Column detection: ``'ratio'``, ``'natural'``, ``'ratio+crystal'``.
+        row_method: Row detection: ``'fixed'`` (k_y ratio) or ``'natural'`` (perceptual).
 
     Returns:
         Dict with metrics, or ``None`` if the table is invalid/too large.
@@ -820,6 +1084,20 @@ def evaluate_grits(
     if len(particles) < 3:
         return None
 
+    # Clip particles to GT table bounding box (simulates table detector)
+    tb = gt.get('table_bbox')
+    if tb:
+        margin = 2
+        particles = [
+            p for p in particles
+            if (p['y0'] >= tb['ymin'] - margin
+                and p['y1'] <= tb['ymax'] + margin
+                and p['x'] >= tb['xmin'] - margin
+                and p['x1'] <= tb['xmax'] + margin)
+        ]
+        if len(particles) < 3:
+            return None
+
     # Predicted structure
     if method == 'natural':
         col_splits = find_col_splits_natural(particles)
@@ -827,7 +1105,14 @@ def evaluate_grits(
         col_splits = find_col_splits_ratio_crystal(particles)
     else:
         col_splits = find_col_splits_ratio(particles)
-    rows_pred = group_rows_per_column(particles, col_splits, k_y=k_y)
+    if row_method == 'natural':
+        rows_pred = group_rows_natural(particles, col_splits)
+    elif row_method == 'consensus':
+        rows_pred = group_rows_consensus(particles, col_splits, k_y=k_y)
+    elif row_method == 'density':
+        rows_pred = group_rows_density(particles, col_splits, k_y=k_y)
+    else:
+        rows_pred = group_rows_per_column(particles, col_splits, k_y=k_y)
     n_pred_rows = len(rows_pred)
     n_pred_cols = len(col_splits) + 1
 
@@ -887,24 +1172,29 @@ def evaluate_grits(
 _WORKER_TOP_ONLY = False
 _WORKER_KY = 0.1
 _WORKER_METHOD = 'ratio'
+_WORKER_ROW_METHOD = 'fixed'
 
 
 def _eval_worker(args):
     """Worker for :class:`multiprocessing.Pool`."""
     json_path, xml_path = args
-    return evaluate_grits(
+    r = evaluate_grits(
         json_path, xml_path,
         top_only=_WORKER_TOP_ONLY, k_y=_WORKER_KY,
-        method=_WORKER_METHOD,
+        method=_WORKER_METHOD, row_method=_WORKER_ROW_METHOD,
     )
+    if r is not None:
+        r['table_id'] = os.path.basename(json_path).replace('_words.json', '')
+    return r
 
 
-def _init_worker(top_only, k_y, method='ratio'):
+def _init_worker(top_only, k_y, method='ratio', row_method='fixed'):
     """Initialiser for worker processes."""
-    global _WORKER_TOP_ONLY, _WORKER_KY, _WORKER_METHOD
+    global _WORKER_TOP_ONLY, _WORKER_KY, _WORKER_METHOD, _WORKER_ROW_METHOD
     _WORKER_TOP_ONLY = top_only
     _WORKER_KY = k_y
     _WORKER_METHOD = method
+    _WORKER_ROW_METHOD = row_method
 
 
 # ---------------------------------------------------------------------------
@@ -930,7 +1220,12 @@ def main():
     parser.add_argument('--method', choices=['ratio', 'natural', 'ratio+crystal'],
                         default='ratio',
                         help='Column detection: ratio (k=0.3), natural (threshold+crystal), ratio+crystal (ratio + crystal rescue)')
+    parser.add_argument('--row-method', choices=['fixed', 'natural', 'consensus', 'density'],
+                        default='fixed',
+                        help='Row detection: fixed (k_y ratio), natural (perceptual), consensus (cross-column), density (merge sparse rows)')
     parser.add_argument('--verbose', '-v', action='store_true')
+    parser.add_argument('--save-json', default=None,
+                        help='Save per-table results to JSON for analysis')
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -946,8 +1241,9 @@ def main():
         'natural': 'natural+crystal',
         'ratio+crystal': 'ratio k=0.3 + col crystal',
     }
+    row_label = 'natural' if args.row_method == 'natural' else f'k_y={args.ky}'
     print(f"\n{'=' * 65}")
-    print(f"  GriTS Benchmark — {method_label[args.method]}  k_y={args.ky}  on {ds_name}")
+    print(f"  GriTS Benchmark — {method_label[args.method]}  rows={row_label}  on {ds_name}")
     print(f"  N={len(pairs)}  seed={args.seed}  cores={args.cores}"
           f"  {'top-only' if args.top_only else 'top+con'}")
     print(f"{'=' * 65}\n")
@@ -961,7 +1257,7 @@ def main():
         with Pool(
             args.cores,
             initializer=_init_worker,
-            initargs=(args.top_only, args.ky, args.method),
+            initargs=(args.top_only, args.ky, args.method, args.row_method),
         ) as pool:
             for i, r in enumerate(
                 pool.imap_unordered(_eval_worker, work, chunksize=32),
@@ -979,11 +1275,12 @@ def main():
             r = evaluate_grits(
                 json_path, xml_path,
                 top_only=args.top_only, k_y=args.ky,
-                method=args.method,
+                method=args.method, row_method=args.row_method,
             )
             if r is None:
                 skipped += 1
                 continue
+            r['table_id'] = os.path.basename(json_path).replace('_words.json', '')
             results.append(r)
             if args.verbose:
                 print(f"  {os.path.basename(json_path)}: "
@@ -1003,7 +1300,7 @@ def main():
 
     # --- Report ---
     print(f"\n{'=' * 65}")
-    print(f"  GriTS RESULTS — {method_label[args.method]}  k_y={args.ky}  [{ds_name}]")
+    print(f"  GriTS RESULTS — {method_label[args.method]}  rows={row_label}  [{ds_name}]")
     print(f"{'=' * 65}")
     print(f"  Tables: {n} evaluated, {skipped} skipped")
     print(f"  Time: {elapsed:.1f}s ({n / elapsed:.0f} tab/s)\n")
@@ -1052,6 +1349,52 @@ def main():
     print(f"    0.7-0.9 (medium): {mid:>5d} ({100 * mid / n:.1f}%)")
     print(f"    <0.7    (low):    {low:>5d} ({100 * low / n:.1f}%)")
     print()
+
+    # --- Spanning vs non-spanning stratification ---
+    span = [r for r in results if r.get('has_spanning')]
+    nospan = [r for r in results if not r.get('has_spanning')]
+    print(f"  BY SPANNING:")
+    for label, subset in [('no span', nospan), ('spanning', span)]:
+        if subset:
+            avg = sum(r['grits_top'] for r in subset) / len(subset)
+            ce = sum(r['col_exact'] for r in subset) / len(subset)
+            re = sum(r['row_exact'] for r in subset) / len(subset)
+            print(f"    {label:10s}: GriTS_Top={avg:.3f}  "
+                  f"col_exact={100 * ce:.1f}%  row_exact={100 * re:.1f}%  "
+                  f"N={len(subset)}")
+    print()
+
+    # --- Row error direction ---
+    over_rows = sum(1 for r in results if r['pred_rows'] > r['gt_rows'])
+    under_rows = sum(1 for r in results if r['pred_rows'] < r['gt_rows'])
+    exact_rows = sum(1 for r in results if r['pred_rows'] == r['gt_rows'])
+    avg_row_delta = sum(r['pred_rows'] - r['gt_rows'] for r in results) / n
+    print(f"  ROW ERROR ANALYSIS:")
+    print(f"    exact:  {exact_rows:>5d} ({100 * exact_rows / n:.1f}%)")
+    print(f"    over:   {over_rows:>5d} ({100 * over_rows / n:.1f}%)  "
+          f"[pred > gt, too many rows]")
+    print(f"    under:  {under_rows:>5d} ({100 * under_rows / n:.1f}%)  "
+          f"[pred < gt, too few rows]")
+    print(f"    avg delta: {avg_row_delta:+.2f} rows")
+    print()
+
+    # --- Column error direction ---
+    over_cols = sum(1 for r in results if r['pred_cols'] > r['gt_cols'])
+    under_cols = sum(1 for r in results if r['pred_cols'] < r['gt_cols'])
+    exact_cols = sum(1 for r in results if r['pred_cols'] == r['gt_cols'])
+    avg_col_delta = sum(r['pred_cols'] - r['gt_cols'] for r in results) / n
+    print(f"  COL ERROR ANALYSIS:")
+    print(f"    exact:  {exact_cols:>5d} ({100 * exact_cols / n:.1f}%)")
+    print(f"    over:   {over_cols:>5d} ({100 * over_cols / n:.1f}%)")
+    print(f"    under:  {under_cols:>5d} ({100 * under_cols / n:.1f}%)")
+    print(f"    avg delta: {avg_col_delta:+.2f} cols")
+    print()
+
+    # --- Save per-table JSON ---
+    if args.save_json:
+        with open(args.save_json, 'w') as f:
+            json.dump(results, f, indent=2)
+        print(f"  Saved {len(results)} per-table results → {args.save_json}\n")
 
 
 if __name__ == '__main__':

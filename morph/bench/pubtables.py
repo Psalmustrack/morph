@@ -108,6 +108,7 @@ def parse_gt(xml_path: str) -> dict:
     gt: dict = {
         'width': width,
         'height': height,
+        'table_bbox': None,
         'rows': [],
         'columns': [],
         'header': None,
@@ -124,7 +125,9 @@ def parse_gt(xml_path: str) -> dict:
             'ymax': float(bb.find('ymax').text),
         }
 
-        if name == 'table row':
+        if name == 'table':
+            gt['table_bbox'] = bbox
+        elif name == 'table row':
             gt['rows'].append(bbox)
         elif name == 'table column':
             gt['columns'].append(bbox)
