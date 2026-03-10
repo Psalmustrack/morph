@@ -228,6 +228,174 @@ d² = Σᵢ (Δᵢ / σᵢ)²  ← MULTI-DIMENSIONALE
 
 ## 🛠️ IMPLEMENTATION ROADMAP
 
+### **PHASE 0: BASELINE (PUNTO ZERO - PRIMA DI TUTTO)**
+
+**Obiettivo:** Stabilire punto di riferimento su TUTTI i dataset
+
+**Perché è critico:**
+- Senza baseline, non sappiamo se miglioriamo o peggioriamo
+- Scienza = misura, cambia, ri-misura, confronta
+- Ogni phase successiva si confronta con questo punto zero
+
+**Test suite multi-dataset:**
+
+#### **1. HVAC (borderless, domain-specific)**
+- `brands/hitachi/input/Brochure airH20_600.pdf` p.8
+- `brands/daikin/input/20220412 VRV 5 HR.pdf` p.21
+- Toshiba catalog (TBD - trovare)
+- Mitsubishi catalog (TBD - trovare)
+- Midea catalog (TBD - trovare)
+
+#### **2. PubTables-1M (bordered, scientific papers)**
+- Sample random di 100 tabelle da test set
+- Mix: spanning + non-spanning
+- Metriche: GriTS_Top, precision, recall
+
+#### **3. Altri dataset (se disponibili)**
+- SROIE (scanned receipts, OCR)
+- FUNSD (forms, noisy)
+- ICDAR (table competition)
+
+**Per ogni PDF/tabella, salvare:**
+
+```python
+baseline_result = {
+    'dataset': 'hvac' | 'pubtables' | 'sroie' | ...,
+    'file': 'daikin_vrv_p21.pdf',
+    'page': 21,
+
+    # Layer 0: Reader
+    'reader': {
+        'words_extracted': 266,
+        'features': ['text', 'bbox', 'size'],  # v0.1 basic
+    },
+
+    # Layer 1: Typify
+    'typify': {
+        'particles_total': 266,
+        'types_breakdown': {
+            'NUMERIC': 102,
+            'MODEL': 8,
+            'UNIT': 17,
+            'SPEC_LABEL': 88,
+            'HEADER_COOLING': 3,
+            'TEXT': 48,
+        },
+        'classification_errors': [
+            {'text': 'QR o fare clic...', 'predicted': 'MODEL', 'correct': 'TEXT'},
+            ...
+        ]
+    },
+
+    # Layer 2: Field
+    'field': {
+        'mapped': 102,
+        'unmapped': 0,
+        'entities': 5,
+        'total_specs': 50,
+        'entities_list': ['FXFA', '25A', '40A', '50A', '63A'],
+        'model_names_issues': [
+            'FXFA + 25A should be FXFA-25A',
+            ...
+        ],
+    },
+
+    # Layer 3: Sense (se applicabile)
+    'sense': {
+        'columns_detected': 6,
+        'columns_gt': None,  # per HVAC non abbiamo GT
+    },
+
+    # Benchmark (se applicabile)
+    'benchmark': {
+        'grits_top': 0.860,  # solo per PubTables
+        'grits_con': None,
+        'row_exact': 0.569,
+        'col_exact': 0.920,
+    },
+
+    # Timing
+    'timing': {
+        'reader_ms': 50,
+        'typify_ms': 20,
+        'field_ms': 100,
+        'total_ms': 170,
+    }
+}
+```
+
+**Script di baseline:**
+
+```python
+# scripts/baseline_v0.1.py
+"""
+Genera baseline v0.1 su tutti i dataset.
+Output: data/baseline_v0.1.json
+"""
+
+def run_baseline_hvac():
+    """5 PDF HVAC"""
+    results = []
+    for pdf_path, page in HVAC_TEST_SET:
+        result = extract_and_measure(pdf_path, page)
+        results.append(result)
+    return results
+
+def run_baseline_pubtables():
+    """100 tabelle random da PubTables test"""
+    results = []
+    sample = random.sample(pubtables_test, 100)
+    for table_path in sample:
+        result = evaluate_grits(table_path, ...)
+        results.append(result)
+    return results
+
+def run_baseline_all():
+    baseline = {
+        'version': 'v0.1.0',
+        'date': '2025-03-10',
+        'hvac': run_baseline_hvac(),
+        'pubtables': run_baseline_pubtables(),
+        # ... altri dataset
+    }
+
+    save_json(baseline, 'data/baseline_v0.1.json')
+    print_summary(baseline)
+
+if __name__ == '__main__':
+    run_baseline_all()
+```
+
+**Output target:**
+
+```
+=== BASELINE v0.1.0 ===
+
+HVAC (5 catalogs):
+  Particles: 266 avg
+  Types accuracy: ? (manuale)
+  Field mapped: 102 avg (95% avg)
+  Model naming: 3/5 correct prefixes
+
+PubTables-1M (100 tables):
+  GriTS_Top: 86.0% avg
+  Row exact: 56.9%
+  Col exact: 92.0%
+
+Total processing: 170ms avg/page
+```
+
+**Deliverable:**
+- `data/baseline_v0.1.json` — dati completi
+- `data/baseline_v0.1_summary.txt` — sommario leggibile
+- Questi file sono il PUNTO ZERO per tutte le phase
+
+**Decision point:**
+- ✅ Se baseline raccolta → Phase 1
+- ❌ Se dataset mancanti → procurare prima di procedere
+
+---
+
 ### **PHASE 1: READER++ (PyMuPDF full extraction)**
 
 **Obiettivo:** Estrarre TUTTO da PyMuPDF
@@ -696,6 +864,12 @@ result = extract_page(particles_table1 + particles_table2)
 - Target: 0 cross-table bonds
 
 **Deliverable:** Campo con dualità attrattivo-repulsivo
+
+**Nota su calibrazione R:**
+La costante repulsiva R sarà calibrata empiricamente durante l'implementazione,
+analizzando l'output reale e regolando R finché Φ_total = 0 emerge dove vogliamo i confini.
+Possibile criterio: R tale che la repulsione confermi max-jump dove funziona già,
+e lo estenda dove fallisce. Decideremo osservando i dati.
 
 ---
 
