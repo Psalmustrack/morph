@@ -337,6 +337,77 @@ def _phi(num: dict, other: dict, axis: str,
     return w * a / (d ** ALPHA)
 
 
+def _phi_repel(num: dict, other: dict, axis: str,
+               all_particles: list[dict],
+               R: float = 0.0,
+               sigma_ws: float = 30.0) -> float:
+    """Repulsive field from whitespace (v2.0).
+
+    Whitespace generates repulsion. Large gaps → strong repulsion.
+    Boundaries emerge where Φ_total = Φ_attract + Φ_repel = 0.
+
+    Formula::
+
+        Φ_repel = -R * exp(-whitespace / σ_ws)
+
+    Where whitespace is the gap between num and other, accounting for
+    intervening particles.
+
+    Args:
+        num: NUMERIC particle.
+        other: Target particle (SPEC_LABEL, MODEL, etc.).
+        axis: 'row' or 'col'.
+        all_particles: All particles on page (to detect intervening ones).
+        R: Repulsion strength (0 = disabled, v2.0).
+        sigma_ws: Whitespace tolerance.
+
+    Returns:
+        Negative potential (repulsion). Higher magnitude = stronger repulsion.
+    """
+    if R <= 0:
+        return 0.0
+
+    # Calculate whitespace between num and other
+    if axis == 'col':
+        # Horizontal whitespace (X-axis)
+        x1, x2 = sorted([num['x'], other['x']])
+        gap = abs(x2 - x1) - (num['x1'] - num['x0']) / 2 - (other['x1'] - other['x0']) / 2
+
+        # Check for intervening particles in the same Y-band
+        y_min, y_max = min(num['y'], other['y']) - 10, max(num['y'], other['y']) + 10
+        intervening = [
+            p for p in all_particles
+            if x1 < p['x'] < x2 and y_min < p['y'] < y_max
+        ]
+
+        # If particles in between, reduce gap
+        if intervening:
+            gap = gap / (len(intervening) + 1)
+
+    else:  # axis == 'row'
+        # Vertical whitespace (Y-axis)
+        y1, y2 = sorted([num['y'], other['y']])
+        gap = abs(y2 - y1) - (num['y1'] - num['y0']) / 2 - (other['y1'] - other['y0']) / 2
+
+        # Check for intervening particles in the same X-band
+        x_min, x_max = min(num['x'], other['x']) - 20, max(num['x'], other['x']) + 20
+        intervening = [
+            p for p in all_particles
+            if y1 < p['y'] < y2 and x_min < p['x'] < x_max
+        ]
+
+        if intervening:
+            gap = gap / (len(intervening) + 1)
+
+    # Repulsive potential (negative, exponential decay)
+    if gap > 0:
+        phi_rep = -R * math.exp(-gap / sigma_ws)
+    else:
+        phi_rep = -R  # Maximum repulsion when overlapping
+
+    return phi_rep
+
+
 # ============================================================
 # Pre-processing
 # ============================================================
@@ -473,7 +544,9 @@ def calibrate_sigma(particles: list[dict]) -> tuple[float, float]:
 def extract_page(particles: list[dict],
                  sigma_font: float = 0.0,
                  sigma_hierarchy: float = 0.0,
-                 sigma_color: float = 0.0) -> dict:
+                 sigma_color: float = 0.0,
+                 R: float = 0.0,
+                 sigma_ws: float = 30.0) -> dict:
     """Full page extraction via the morphogenetic field.
 
     Takes typed particles, computes Phi for each NUMERIC, assigns to
@@ -492,11 +565,18 @@ def extract_page(particles: list[dict],
         With sigma_font/hierarchy/color > 0, distance becomes rich:
         d² = (dx/σx)² + (dy/σy)² + (df/σf)² + (dh/σh)² + (dc/σc)²
 
+    v2.0 Dual field (attractive-repulsive):
+        With R > 0, whitespace generates repulsion:
+        Φ_total = Φ_attract + Φ_repel
+        Boundaries emerge where Φ_total = 0.
+
     Args:
         particles: Particles from typify.extract_particles().
         sigma_font: Font affinity weight (0 = disabled, v2.0).
         sigma_hierarchy: Hierarchy affinity weight (0 = disabled, v2.0).
         sigma_color: Color affinity weight (0 = disabled, v2.0).
+        R: Repulsion strength (0 = disabled, v2.0).
+        sigma_ws: Whitespace tolerance for repulsion (v2.0).
 
     Returns:
         Dict with keys:
@@ -554,33 +634,43 @@ def extract_page(particles: list[dict],
 
     for num in numerics:
         # Best SPEC (row) — Y axis + z (magnitude validation)
+        # v2.0: Φ_total = Φ_attract + Φ_repel
         best_spec = None
         best_phi_spec = 0.0
         for s in specs:
-            p = _phi(num, s, 'row', sigma_y, sigma_x, lambda_z,
-                     sigma_font, sigma_hierarchy, sigma_color)
-            if p > best_phi_spec:
-                best_phi_spec = p
+            phi_attract = _phi(num, s, 'row', sigma_y, sigma_x, lambda_z,
+                              sigma_font, sigma_hierarchy, sigma_color)
+            phi_repel = _phi_repel(num, s, 'row', particles, R, sigma_ws)
+            phi_total = phi_attract + phi_repel
+
+            if phi_total > best_phi_spec:
+                best_phi_spec = phi_total
                 best_spec = s
 
         # Best column (entity) — X axis (no z: column has diverse specs)
         best_col = None
         best_phi_col = 0.0
         for c in col_headers:
-            p = _phi(num, c, 'col', sigma_y, sigma_x, 0.0,
-                     sigma_font, sigma_hierarchy, sigma_color)
-            if p > best_phi_col:
-                best_phi_col = p
+            phi_attract = _phi(num, c, 'col', sigma_y, sigma_x, 0.0,
+                              sigma_font, sigma_hierarchy, sigma_color)
+            phi_repel = _phi_repel(num, c, 'col', particles, R, sigma_ws)
+            phi_total = phi_attract + phi_repel
+
+            if phi_total > best_phi_col:
+                best_phi_col = phi_total
                 best_col = c
 
         # Best UNIT (row) — Y axis (no z: unit has no magnitude)
         best_unit = None
         best_phi_unit = 0.0
         for u in units:
-            p = _phi(num, u, 'row', sigma_y, sigma_x, 0.0,
-                     sigma_font, sigma_hierarchy, sigma_color)
-            if p > best_phi_unit:
-                best_phi_unit = p
+            phi_attract = _phi(num, u, 'row', sigma_y, sigma_x, 0.0,
+                              sigma_font, sigma_hierarchy, sigma_color)
+            phi_repel = _phi_repel(num, u, 'row', particles, R, sigma_ws)
+            phi_total = phi_attract + phi_repel
+
+            if phi_total > best_phi_unit:
+                best_phi_unit = phi_total
                 best_unit = u
 
         if best_spec is not None:
